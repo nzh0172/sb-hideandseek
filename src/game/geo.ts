@@ -2,6 +2,7 @@
 
 import type { Coordinate } from '../types/core';
 import type { Station } from '../types/game-state';
+import type { CardinalDirection } from './types';
 
 const EARTH_RADIUS_KM = 6371;
 
@@ -89,4 +90,28 @@ const DAY_SECONDS = 86400;
 /** Current in-game time as seconds into the day (0–86400) */
 export function getCurrentTimeOfDaySeconds(): number {
   return window.SubwayBuilderAPI.gameState.getElapsedSeconds() % DAY_SECONDS;
+}
+
+/** True when `point` lies strictly on the given side of `ref`. */
+export function isCardinalDirectionOf(
+  point: Coordinate,
+  ref: Coordinate,
+  direction: CardinalDirection,
+): boolean {
+  const [pointLon, pointLat] = point;
+  const [refLon, refLat] = ref;
+  switch (direction) {
+    case 'north':
+      return pointLat > refLat;
+    case 'south':
+      return pointLat < refLat;
+    case 'east':
+      return pointLon > refLon;
+    case 'west':
+      return pointLon < refLon;
+  }
+}
+
+export function formatCardinalDirection(direction: CardinalDirection): string {
+  return direction.charAt(0).toUpperCase() + direction.slice(1);
 }

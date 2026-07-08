@@ -33,7 +33,9 @@ export interface QueryLogEntry {
   timestamp: number;
 }
 
-export type MapOverlayKind = 'distance-circle' | 'route-line';
+export type MapOverlayKind = 'distance-circle' | 'route-line' | 'half-plane';
+
+export type CardinalDirection = 'north' | 'south' | 'east' | 'west';
 
 export interface MapOverlay {
   id: string;
@@ -44,6 +46,7 @@ export interface MapOverlay {
   radiusKm?: number;
   routeId?: string;
   routeIds?: string[];
+  direction?: CardinalDirection;
   /** True when answer was Yes (inside/on); false when No (outside/off). */
   inclusive: boolean;
 }

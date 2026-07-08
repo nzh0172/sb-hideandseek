@@ -2,14 +2,14 @@
 
 import { pickBotHideSpot } from './botHider';
 import {
-  applyDistanceFromStart,
+  applyCardinalDirection,
   applyDistanceFromStation,
   applyLineCheck,
   applySameLineAsStart,
   applyTransferCount,
 } from './deduction';
 import { areSameStationGroup, getRouteDisplayName, getStationDisplayNameById } from './displayNames';
-import { haversineKm } from './geo';
+import { formatCardinalDirection, haversineKm, isCardinalDirectionOf } from './geo';
 import { clearDeductionOverlay, refreshDeductionOverlay } from './mapOverlay';
 import {
   getPlayableRoutes,
@@ -26,6 +26,7 @@ import {
   setStartStationId,
   transitionTo,
 } from './session';
+import type { CardinalDirection } from './types';
 
 const api = window.SubwayBuilderAPI;
 
@@ -105,24 +106,6 @@ function getStationCoords(stationId: string) {
   return api.gameState.getStations().find((s) => s.id === stationId)?.coords;
 }
 
-export function queryWithinKmFromMe(radiusKm: number): void {
-  const session = getSession();
-  if (!session.startStationId || !session.hideStationId) return;
-
-  const startCoords = getStationCoords(session.startStationId);
-  const hideCoords = getStationCoords(session.hideStationId);
-  if (!startCoords || !hideCoords) return;
-
-  const dist = haversineKm(startCoords, hideCoords);
-  const within = dist <= radiusKm;
-  const answer = within ? 'Yes' : 'No';
-  addQueryLog({
-    question: `Within ${radiusKm} km from me?`,
-    answer: `${answer} (${dist.toFixed(1)} km)`,
-  });
-  applyDistanceFromStart(radiusKm, within);
-}
-
 export function queryWithinKmFromStation(
   refStationId: string,
   radiusKm: number,
@@ -142,6 +125,27 @@ export function queryWithinKmFromStation(
     answer: `${answer} (${dist.toFixed(1)} km)`,
   });
   applyDistanceFromStation(refStationId, radiusKm, within);
+}
+
+export function queryDirectionFromStation(
+  refStationId: string,
+  direction: CardinalDirection,
+): void {
+  const session = getSession();
+  if (!session.hideStationId) return;
+
+  const ref = api.gameState.getStations().find((s) => s.id === refStationId);
+  const hideCoords = getStationCoords(session.hideStationId);
+  if (!ref || !hideCoords) return;
+
+  const onSide = isCardinalDirectionOf(hideCoords, ref.coords, direction);
+  const refName = getStationDisplayNameById(refStationId);
+  const dirLabel = formatCardinalDirection(direction);
+  addQueryLog({
+    question: `${dirLabel} of ${refName}?`,
+    answer: onSide ? 'Yes' : 'No',
+  });
+  applyCardinalDirection(refStationId, direction, onSide);
 }
 
 export function queryOnLine(routeId: string): void {

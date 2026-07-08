@@ -400,6 +400,14 @@ function rebuildPath(legs: PathLeg[], totalTimeSeconds: number): ValidatedPath {
   };
 }
 
+/** Prefer more transfers, then longer journeys that use the hide window. */
+function isBetterHidePath(candidate: ValidatedPath, current: ValidatedPath): boolean {
+  if (candidate.transferCount !== current.transferCount) {
+    return candidate.transferCount > current.transferCount;
+  }
+  return candidate.totalTimeSeconds > current.totalTimeSeconds;
+}
+
 function heapPush(heap: SearchState[], item: SearchState): void {
   heap.push(item);
   let index = heap.length - 1;
@@ -693,7 +701,7 @@ export function findValidHideCandidates(
       if (destStationId) {
         const path = rebuildPath(current.legs, current.journeyElapsed);
         const existing = bestByStation.get(destStationId);
-        if (!existing || path.totalTimeSeconds < existing.totalTimeSeconds) {
+        if (!existing || isBetterHidePath(path, existing)) {
           bestByStation.set(destStationId, path);
         }
       }

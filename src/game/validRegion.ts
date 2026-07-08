@@ -11,6 +11,7 @@ import {
   union,
 } from '@turf/turf';
 import { circlePolygonRing } from './geo';
+import type { CardinalDirection } from './types';
 import { getRouteStationLineCoords } from './scheduleGraph';
 import type { MapOverlay } from './types';
 
@@ -122,9 +123,69 @@ function routeCorridor(routeId: string): AreaFeature | null {
   );
 }
 
+function halfPlaneArea(
+  ref: [number, number],
+  direction: CardinalDirection,
+  bounds: AreaFeature,
+): AreaFeature {
+  const [lon, lat] = ref;
+  const [minLon, minLat, maxLon, maxLat] = bbox(bounds as never);
+
+  let ring: [number, number][];
+  switch (direction) {
+    case 'north':
+      ring = [
+        [minLon, lat],
+        [maxLon, lat],
+        [maxLon, maxLat],
+        [minLon, maxLat],
+        [minLon, lat],
+      ];
+      break;
+    case 'south':
+      ring = [
+        [minLon, minLat],
+        [maxLon, minLat],
+        [maxLon, lat],
+        [minLon, lat],
+        [minLon, minLat],
+      ];
+      break;
+    case 'east':
+      ring = [
+        [lon, minLat],
+        [maxLon, minLat],
+        [maxLon, maxLat],
+        [lon, maxLat],
+        [lon, minLat],
+      ];
+      break;
+    case 'west':
+      ring = [
+        [minLon, minLat],
+        [lon, minLat],
+        [lon, maxLat],
+        [minLon, maxLat],
+        [minLon, minLat],
+      ];
+      break;
+  }
+
+  return {
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [ring] },
+    properties: {},
+  };
+}
+
 function overlayRegion(overlay: MapOverlay): AreaFeature | null {
   if (overlay.kind === 'distance-circle' && overlay.center && overlay.radiusKm) {
     return circleArea(overlay.center, overlay.radiusKm);
+  }
+
+  if (overlay.kind === 'half-plane' && overlay.center && overlay.direction) {
+    const bounds = getBoundsPolygon();
+    return halfPlaneArea(overlay.center, overlay.direction, bounds);
   }
 
   if (overlay.kind === 'route-line') {

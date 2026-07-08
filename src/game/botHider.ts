@@ -1,5 +1,6 @@
-/** Bot hider: pick the furthest schedule-valid destination from start */
+/** Bot hider: pick a schedule-valid destination within the play area */
 
+import { collapseStationIdsByGroup } from './stationGroups';
 import { haversineKm, stationsWithinRadiusKm } from './geo';
 import { findValidHideCandidates, getPlayableRoutes } from './scheduleGraph';
 import type { HideCandidate, GameConfig } from './types';
@@ -18,28 +19,62 @@ export interface BotHideFailure {
 
 export type BotHideOutcome = BotHideResult | BotHideFailure;
 
-function pickFurthestCandidate(
+function isBetterBotCandidate(
+  startCoords: [number, number],
+  candidate: HideCandidate,
+  best: HideCandidate,
+): boolean {
+  const candidateTransfers = candidate.path.transferCount;
+  const bestTransfers = best.path.transferCount;
+  if (candidateTransfers !== bestTransfers) {
+    return candidateTransfers > bestTransfers;
+  }
+
+  const candidateStation = window.SubwayBuilderAPI.gameState
+    .getStations()
+    .find((s) => s.id === candidate.stationId);
+  const bestStation = window.SubwayBuilderAPI.gameState
+    .getStations()
+    .find((s) => s.id === best.stationId);
+  if (!candidateStation || !bestStation) return false;
+
+  const candidateDistance = haversineKm(startCoords, candidateStation.coords);
+  const bestDistance = haversineKm(startCoords, bestStation.coords);
+  if (candidateDistance !== bestDistance) {
+    return candidateDistance > bestDistance;
+  }
+
+  return candidate.path.totalTimeSeconds > best.path.totalTimeSeconds;
+}
+
+function pickBotCandidate(
   startStationId: string,
   candidates: HideCandidate[],
 ): HideCandidate {
-  const api = window.SubwayBuilderAPI;
-  const start = api.gameState.getStations().find((s) => s.id === startStationId)!;
+  const start = window.SubwayBuilderAPI.gameState
+    .getStations()
+    .find((s) => s.id === startStationId)!;
 
   let best = candidates[0]!;
-  let bestDistance = 0;
-
-  for (const candidate of candidates) {
-    const station = api.gameState.getStations().find((s) => s.id === candidate.stationId);
-    if (!station) continue;
-
-    const distance = haversineKm(start.coords, station.coords);
-    if (distance > bestDistance) {
-      bestDistance = distance;
+  for (let i = 1; i < candidates.length; i++) {
+    const candidate = candidates[i]!;
+    if (isBetterBotCandidate(start.coords, candidate, best)) {
       best = candidate;
     }
   }
-
   return best;
+}
+
+function isDestinationInPlayArea(
+  stationId: string,
+  startCoords: [number, number],
+  radiusKm: number,
+): boolean {
+  const station = window.SubwayBuilderAPI.gameState
+    .getStations()
+    .find((s) => s.id === stationId);
+  if (!station) return false;
+  return haversineKm(startCoords, station.coords) <= radiusKm;
 }
 
 export function pickBotHideSpot(
@@ -82,10 +117,23 @@ export function pickBotHideSpot(
   }
 
   const maxTravelSeconds = config.hideDurationHours * 3600;
-  const candidates = findValidHideCandidates(
+  // Search the full network; only hide destinations must land inside the play area.
+  const allDestinationIds = collapseStationIdsByGroup(
+    stations.filter((s) => s.id !== startStationId).map((s) => s.id),
+  );
+
+  const reachable = findValidHideCandidates(
     startStationId,
-    inRadius.map((s) => s.id),
+    allDestinationIds,
     maxTravelSeconds,
+  );
+
+  const candidates = reachable.filter((candidate) =>
+    isDestinationInPlayArea(
+      candidate.stationId,
+      startStation.coords,
+      config.hideRadiusKm,
+    ),
   );
 
   if (candidates.length === 0) {
@@ -97,6 +145,6 @@ export function pickBotHideSpot(
     };
   }
 
-  const candidate = pickFurthestCandidate(startStationId, candidates);
+  const candidate = pickBotCandidate(startStationId, candidates);
   return { ok: true, candidate, allCandidates: candidates };
 }

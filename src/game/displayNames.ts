@@ -177,6 +177,15 @@ export function getRouteBulletsForStationGroup(stationId: string): RouteBulletMe
   );
 }
 
+/** All route IDs serving an interchange (all platforms in the group). */
+export function getRouteIdsForStationGroup(stationId: string): string[] {
+  const ids = new Set<string>();
+  for (const bullet of getRouteBulletsForStationGroup(stationId)) {
+    ids.add(bullet.routeId);
+  }
+  return [...ids];
+}
+
 /** All line names serving a station */
 export function getRouteLabelsForStation(stationId: string): string[] {
   return getRouteBulletsForStation(stationId).map((b) => b.label);

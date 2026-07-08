@@ -27,6 +27,9 @@ interface StationPickerPageProps {
   onChange: (stationId: string) => void;
   title?: string;
   onBack?: () => void;
+  /** Pinned quick-pick row shown above the route station list. */
+  pinnedStationId?: string;
+  pinnedLabel?: string;
 }
 
 function RouteListItem({
@@ -108,6 +111,8 @@ export function StationPickerPage({
   onChange,
   title = 'Pick a station',
   onBack,
+  pinnedStationId,
+  pinnedLabel = 'Starting station',
 }: StationPickerPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogVersion, setCatalogVersion] = useState(0);
@@ -228,6 +233,33 @@ export function StationPickerPage({
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
+            {pinnedStationId && !searching && (
+              <div
+                style={{
+                  borderBottom: '2px solid rgba(128,128,128,0.2)',
+                  background: 'rgba(249,115,22,0.06)',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '0.375rem 0.75rem 0',
+                    fontSize: '0.6875rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    opacity: 0.65,
+                  }}
+                >
+                  <ForceText text={pinnedLabel} />
+                </div>
+                <StationListItem
+                  stationId={pinnedStationId}
+                  selected={areSameStationGroup(pinnedStationId, value)}
+                  onPick={() => pickStation(pinnedStationId)}
+                />
+              </div>
+            )}
+
             {searching && searchResults.length === 0 && (
               <div style={{ padding: '0.75rem', fontSize: '0.8125rem', opacity: 0.65 }}>
                 <ForceText text="No stations match your search" />

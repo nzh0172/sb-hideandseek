@@ -1,14 +1,15 @@
 /** Seeking phase: deduction tools and guess */
 
 import { useState } from 'react';
-import { getSortedStations } from '../game/displayNames';
+import { getGroupRepresentative, getSortedStations } from '../game/displayNames';
+import type { CardinalDirection } from '../game/types';
 import {
   giveUp,
   guessStation,
+  queryDirectionFromStation,
   queryOnLine,
   querySameLineAsStart,
   queryTransferCount,
-  queryWithinKmFromMe,
   queryWithinKmFromStation,
 } from '../game/controller';
 import { ForceText } from './ForceText';
@@ -20,19 +21,30 @@ import { StationLabel } from './StationLabel';
 import { StationPickerPage } from './StationPickerPage';
 import { useSession } from './useSession';
 
-const api = window.SubwayBuilderAPI;
-const { Button, Label } = api.utils.components as Record<string, React.ComponentType<any>>;
+const { Button, Label } = window.SubwayBuilderAPI.utils.components as Record<
+  string,
+  React.ComponentType<any>
+>;
 
 const DISTANCE_OPTIONS = [1, 2, 5, 10, 20];
+const DIRECTION_OPTIONS: CardinalDirection[] = ['north', 'south', 'east', 'west'];
 
 type PickerTarget = 'ref' | 'guess' | 'line' | null;
 
 export function SeekingPhase() {
   const session = useSession();
   const [stations] = useState(getSortedStations);
-  const [refStationId, setRefStationId] = useState(stations[0]?.id ?? '');
+  const defaultRefId =
+    session.startStationId
+      ? getGroupRepresentative(session.startStationId)
+      : (stations[0]?.id ?? '');
+  const [refStationId, setRefStationId] = useState(defaultRefId);
   const [guessId, setGuessId] = useState(stations[0]?.id ?? '');
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
+
+  const startStationId = session.startStationId
+    ? getGroupRepresentative(session.startStationId)
+    : null;
 
   if (pickerTarget === 'ref') {
     return (
@@ -41,6 +53,8 @@ export function SeekingPhase() {
         stations={stations}
         onChange={setRefStationId}
         title="Reference station"
+        pinnedStationId={startStationId ?? undefined}
+        pinnedLabel="Starting station"
         onBack={() => setPickerTarget(null)}
       />
     );
@@ -83,20 +97,7 @@ export function SeekingPhase() {
       </p>
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">Distance from me (start station)</span>
-        <div className="flex flex-wrap gap-1">
-          {DISTANCE_OPTIONS.map((km, index) => (
-            <LabeledButton
-              key={index}
-              label={`≤ ${km} km`}
-              onClick={() => queryWithinKmFromMe(km)}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">Distance from station</span>
+        <span className="text-xs font-medium">Reference station</span>
         <div className="flex items-center gap-2">
           {refStationId ? (
             <StationLabel
@@ -112,22 +113,60 @@ export function SeekingPhase() {
               style={{ flex: 1, minWidth: 0 }}
             />
           )}
+          {startStationId && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRefStationId(startStationId)}
+              style={{
+                backgroundColor: '#ffffff',
+                color: '#111827',
+                borderColor: 'rgba(128,128,128,0.45)',
+                flexShrink: 0,
+              }}
+            >
+              <ForceText text="Starting station" />
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={() => setPickerTarget('ref')}
-            style={{ backgroundColor: '#ffffff', color: '#111827', borderColor: 'rgba(128,128,128,0.45)' }}
+            style={{
+              backgroundColor: '#ffffff',
+              color: '#111827',
+              borderColor: 'rgba(128,128,128,0.45)',
+              flexShrink: 0,
+            }}
           >
             <ForceText text="Change" />
           </Button>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium">Distance from reference</span>
         <div className="flex flex-wrap gap-1">
           {DISTANCE_OPTIONS.map((km, index) => (
             <LabeledButton
               key={index}
               label={`≤ ${km} km`}
               onClick={() => queryWithinKmFromStation(refStationId, km)}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium">Direction from reference</span>
+        <div className="flex flex-wrap gap-1">
+          {DIRECTION_OPTIONS.map((direction, index) => (
+            <LabeledButton
+              key={index}
+              label={direction.charAt(0).toUpperCase() + direction.slice(1)}
+              onClick={() => queryDirectionFromStation(refStationId, direction)}
             />
           ))}
         </div>
@@ -173,7 +212,11 @@ export function SeekingPhase() {
             variant="outline"
             size="sm"
             onClick={() => setPickerTarget('guess')}
-            style={{ backgroundColor: '#ffffff', color: '#111827', borderColor: 'rgba(128,128,128,0.45)' }}
+            style={{
+              backgroundColor: '#ffffff',
+              color: '#111827',
+              borderColor: 'rgba(128,128,128,0.45)',
+            }}
           >
             <ForceText text="Change" />
           </Button>

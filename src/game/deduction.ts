@@ -1,10 +1,11 @@
 /** Apply deduction query results to possible locations and map overlays */
 
-import { haversineKm } from './geo';
+import { getRouteIdsForStationGroup } from './displayNames';
+import { haversineKm, isCardinalDirectionOf } from './geo';
 import { refreshDeductionOverlay } from './mapOverlay';
 import { isSameLineWithoutTransfer, isStationOnRoute } from './scheduleGraph';
 import { getSession, setDeductionState } from './session';
-import type { MapOverlay } from './types';
+import type { CardinalDirection, MapOverlay } from './types';
 
 const api = window.SubwayBuilderAPI;
 
@@ -29,32 +30,6 @@ function applyDeductionUpdate(
     mapOverlays: mergeOverlays(session.mapOverlays, newOverlays),
   });
   refreshDeductionOverlay();
-}
-
-export function applyDistanceFromStart(radiusKm: number, within: boolean): void {
-  const session = getSession();
-  if (!session.startStationId) return;
-
-  const start = api.gameState.getStations().find((s) => s.id === session.startStationId);
-  if (!start) return;
-
-  const filtered = session.possibleStationIds.filter((id) => {
-    const station = api.gameState.getStations().find((s) => s.id === id);
-    if (!station) return false;
-    const dist = haversineKm(start.coords, station.coords);
-    return within ? dist <= radiusKm : dist > radiusKm;
-  });
-
-  applyDeductionUpdate(filtered, [
-    {
-      id: overlayId('dist-me'),
-      deductionKey: `dist-me:${radiusKm}:${within}`,
-      kind: 'distance-circle',
-      center: start.coords,
-      radiusKm,
-      inclusive: within,
-    },
-  ]);
 }
 
 export function applyDistanceFromStation(
@@ -85,6 +60,34 @@ export function applyDistanceFromStation(
   ]);
 }
 
+export function applyCardinalDirection(
+  refStationId: string,
+  direction: CardinalDirection,
+  onSide: boolean,
+): void {
+  const session = getSession();
+  const ref = api.gameState.getStations().find((s) => s.id === refStationId);
+  if (!ref) return;
+
+  const filtered = session.possibleStationIds.filter((id) => {
+    const station = api.gameState.getStations().find((s) => s.id === id);
+    if (!station) return false;
+    const matches = isCardinalDirectionOf(station.coords, ref.coords, direction);
+    return onSide ? matches : !matches;
+  });
+
+  applyDeductionUpdate(filtered, [
+    {
+      id: overlayId('dir'),
+      deductionKey: `dir:${refStationId}:${direction}:${onSide}`,
+      kind: 'half-plane',
+      center: ref.coords,
+      direction,
+      inclusive: onSide,
+    },
+  ]);
+}
+
 export function applyLineCheck(routeId: string, onLine: boolean): void {
   const session = getSession();
   const filtered = session.possibleStationIds.filter((id) => {
@@ -107,10 +110,7 @@ export function applySameLineAsStart(same: boolean): void {
   const session = getSession();
   if (!session.startStationId) return;
 
-  const startStation = api.gameState.getStations().find(
-    (s) => s.id === session.startStationId,
-  );
-  const routeIds = startStation?.routeIds ?? [];
+  const routeIds = getRouteIdsForStationGroup(session.startStationId);
 
   const filtered = session.possibleStationIds.filter((id) => {
     if (!session.startStationId) return false;
