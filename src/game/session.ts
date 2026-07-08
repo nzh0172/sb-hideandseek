@@ -2,6 +2,7 @@
 
 import {
   createInitialSession,
+  type GameConfig,
   type GamePhase,
   type HideSeekSession,
   type MapOverlay,
@@ -46,6 +47,11 @@ export function setDeductionState(data: {
 
 export function setStartStationId(stationId: string | null): void {
   session = { ...session, startStationId: stationId };
+  notify();
+}
+
+export function setGameConfig(config: GameConfig): void {
+  session = { ...session, config: { ...config } };
   notify();
 }
 

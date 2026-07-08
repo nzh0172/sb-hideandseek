@@ -1,25 +1,23 @@
 /** Compute intersecting valid region and subtractive dark mask for map overlay */
 
-import mask from '@turf/mask';
 import {
   bbox,
   bboxPolygon,
   buffer,
-  circle,
   difference,
   featureCollection,
   intersect,
   lineString,
-  point,
   union,
 } from '@turf/turf';
+import { circlePolygonRing } from './geo';
 import { getRouteStationLineCoords } from './scheduleGraph';
 import type { MapOverlay } from './types';
 
 const api = window.SubwayBuilderAPI;
 
 const ROUTE_CORRIDOR_KM = 0.35;
-const BOUNDS_PADDING_DEG = 0.4;
+const BOUNDS_PADDING_DEG = 0.15;
 
 type Position = [number, number] | [number, number, number];
 
@@ -42,6 +40,15 @@ function asArea(feature: unknown): AreaFeature | null {
   return null;
 }
 
+function circleArea(center: [number, number], radiusKm: number): AreaFeature {
+  const ring = circlePolygonRing(center, radiusKm);
+  return {
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [ring] },
+    properties: {},
+  };
+}
+
 function intersectArea(a: AreaFeature, b: AreaFeature): AreaFeature | null {
   return asArea(intersect(featureCollection([a, b] as never)));
 }
@@ -54,15 +61,12 @@ function unionArea(a: AreaFeature, b: AreaFeature): AreaFeature | null {
   return asArea(union(featureCollection([a, b] as never)));
 }
 
-function getBoundsPolygon(): AreaFeature {
-  const stations = api.gameState.getStations();
-  if (stations.length === 0) {
-    return asArea(bboxPolygon([-180, -85, 180, 85]))!;
-  }
-
-  const points = featureCollection(stations.map((s) => point(s.coords)));
-  const [minLon, minLat, maxLon, maxLat] = bbox(points);
-
+function boundsWithPadding(
+  minLon: number,
+  minLat: number,
+  maxLon: number,
+  maxLat: number,
+): AreaFeature {
   return asArea(
     bboxPolygon([
       minLon - BOUNDS_PADDING_DEG,
@@ -71,6 +75,39 @@ function getBoundsPolygon(): AreaFeature {
       maxLat + BOUNDS_PADDING_DEG,
     ]),
   )!;
+}
+
+function getBoundsPolygon(playArea: AreaFeature | null = null): AreaFeature {
+  const stations = api.gameState.getStations();
+  let minLon = Infinity;
+  let minLat = Infinity;
+  let maxLon = -Infinity;
+  let maxLat = -Infinity;
+
+  for (const station of stations) {
+    minLon = Math.min(minLon, station.coords[0]);
+    minLat = Math.min(minLat, station.coords[1]);
+    maxLon = Math.max(maxLon, station.coords[0]);
+    maxLat = Math.max(maxLat, station.coords[1]);
+  }
+
+  if (playArea) {
+    const [pMinLon, pMinLat, pMaxLon, pMaxLat] = bbox(playArea as never);
+    minLon = Math.min(minLon, pMinLon);
+    minLat = Math.min(minLat, pMinLat);
+    maxLon = Math.max(maxLon, pMaxLon);
+    maxLat = Math.max(maxLat, pMaxLat);
+  }
+
+  if (!Number.isFinite(minLon)) {
+    if (playArea) {
+      const [pMinLon, pMinLat, pMaxLon, pMaxLat] = bbox(playArea as never);
+      return boundsWithPadding(pMinLon, pMinLat, pMaxLon, pMaxLat);
+    }
+    return asArea(bboxPolygon([-180, -85, 180, 85]))!;
+  }
+
+  return boundsWithPadding(minLon, minLat, maxLon, maxLat);
 }
 
 function routeCorridor(routeId: string): AreaFeature | null {
@@ -86,10 +123,7 @@ function routeCorridor(routeId: string): AreaFeature | null {
 
 function overlayRegion(overlay: MapOverlay): AreaFeature | null {
   if (overlay.kind === 'distance-circle' && overlay.center && overlay.radiusKm) {
-    return circle(overlay.center, overlay.radiusKm, {
-      units: 'kilometers',
-      steps: 64,
-    });
+    return circleArea(overlay.center, overlay.radiusKm);
   }
 
   if (overlay.kind === 'route-line') {
@@ -115,30 +149,38 @@ export function uniqueOverlays(overlays: MapOverlay[]): MapOverlay[] {
   return [...byKey.values()];
 }
 
+function initialValidRegion(
+  bounds: AreaFeature,
+  playArea: AreaFeature | null,
+): AreaFeature | null {
+  if (!playArea) return null;
+  return intersectArea(bounds, playArea) ?? playArea;
+}
+
 /** Intersection of play area and inclusive constraints minus exclusive ones. */
 export function computeValidRegion(
   overlays: MapOverlay[],
   playArea: AreaFeature | null = null,
 ): AreaFeature | null {
   const unique = uniqueOverlays(overlays);
-  const bounds = getBoundsPolygon();
-
-  let valid: AreaFeature | null = playArea ? intersectArea(bounds, playArea) : null;
+  const bounds = getBoundsPolygon(playArea);
 
   if (unique.length === 0) {
-    return valid;
+    return initialValidRegion(bounds, playArea);
   }
 
-  valid = valid ?? bounds;
+  let valid: AreaFeature | null = playArea
+    ? initialValidRegion(bounds, playArea)
+    : bounds;
 
   for (const overlay of unique) {
     const region = overlayRegion(overlay);
     if (!region) continue;
 
     if (overlay.inclusive) {
-      valid = valid ? intersectArea(valid, region) : region;
+      valid = valid ? intersectArea(valid, region) : null;
     } else {
-      valid = valid ? differenceArea(valid, region) : differenceArea(bounds, region);
+      valid = valid ? differenceArea(valid, region) : null;
     }
 
     if (!valid) return null;
@@ -147,22 +189,19 @@ export function computeValidRegion(
   return valid;
 }
 
-/** Dark fill polygon: map bounds with valid region cut out as hole(s). */
+/** Dark fill polygon: map bounds minus the bright valid region. */
 export function buildSubtractiveMask(
   overlays: MapOverlay[],
   playArea: AreaFeature | null = null,
 ): AreaFeature | null {
+  const bounds = getBoundsPolygon(playArea);
   const valid = computeValidRegion(overlays, playArea);
-  if (!valid) return null;
 
-  const bounds = getBoundsPolygon();
-  try {
-    const dark = mask(valid as never, bounds as never);
-    if (!dark?.geometry) return null;
-    return asArea(dark);
-  } catch {
+  if (!valid) {
     return bounds;
   }
+
+  return differenceArea(bounds, valid) ?? bounds;
 }
 
 /** Outline rings for the valid bright region (optional border). */
@@ -186,10 +225,5 @@ export function playAreaRegion(
   center: [number, number],
   radiusKm: number,
 ): AreaFeature {
-  return asArea(
-    circle(center, radiusKm, {
-      units: 'kilometers',
-      steps: 64,
-    }),
-  )!;
+  return circleArea(center, radiusKm);
 }

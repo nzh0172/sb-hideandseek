@@ -25,7 +25,21 @@ type OverlayGeoJson = Parameters<GeoJSONSource['setData']>[0];
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] } as OverlayGeoJson;
 
+/** Highlight radius around the revealed hide station. */
+const REVEAL_HIGHLIGHT_RADIUS_KM = 0.5;
+
 let mapRef: MapLibreMap | null = null;
+let lastRevealZoomKey: string | null = null;
+let setupPlayAreaVisible = true;
+
+export function isSetupPlayAreaVisible(): boolean {
+  return setupPlayAreaVisible;
+}
+
+export function setSetupPlayAreaVisible(visible: boolean): void {
+  setupPlayAreaVisible = visible;
+  refreshDeductionOverlay();
+}
 
 function buildPlayAreaFeatures(
   session: HideSeekSession,
@@ -62,7 +76,11 @@ function buildSetupFeatures(
   session: HideSeekSession,
   stationMap: Map<string, { coords: [number, number] }>,
 ): Array<Record<string, unknown>> {
-  const features = buildPlayAreaFeatures(session, stationMap);
+  const features: Array<Record<string, unknown>> = [];
+
+  if (setupPlayAreaVisible) {
+    features.push(...buildPlayAreaFeatures(session, stationMap));
+  }
 
   if (!session.startStationId) return features;
 
@@ -78,12 +96,88 @@ function buildSetupFeatures(
   return features;
 }
 
+function buildRevealFeatures(
+  session: HideSeekSession,
+  stationMap: Map<string, { coords: [number, number] }>,
+): Array<Record<string, unknown>> {
+  if (!session.hideStationId) return [];
+
+  const hideStation = stationMap.get(session.hideStationId);
+  if (!hideStation) return [];
+
+  const ring = circlePolygonRing(hideStation.coords, REVEAL_HIGHLIGHT_RADIUS_KM);
+  return [
+    {
+      type: 'Feature',
+      properties: { kind: 'reveal-circle-fill' },
+      geometry: { type: 'Polygon', coordinates: [ring] },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'reveal-circle-outline' },
+      geometry: { type: 'LineString', coordinates: ring },
+    },
+    {
+      type: 'Feature',
+      properties: { kind: 'hide-station' },
+      geometry: { type: 'Point', coordinates: hideStation.coords },
+    },
+  ];
+}
+
+function zoomToRevealStation(coords: [number, number]): void {
+  const map = mapRef ?? api.utils.getMap();
+  if (!map) return;
+
+  const ring = circlePolygonRing(coords, REVEAL_HIGHLIGHT_RADIUS_KM);
+  let minLon = Infinity;
+  let minLat = Infinity;
+  let maxLon = -Infinity;
+  let maxLat = -Infinity;
+
+  for (const [lon, lat] of ring) {
+    minLon = Math.min(minLon, lon);
+    minLat = Math.min(minLat, lat);
+    maxLon = Math.max(maxLon, lon);
+    maxLat = Math.max(maxLat, lat);
+  }
+
+  map.fitBounds(
+    [
+      [minLon, minLat],
+      [maxLon, maxLat],
+    ],
+    { padding: 56, duration: 900, maxZoom: 17 },
+  );
+}
+
+export function centerMapOnStation(stationId: string): void {
+  const session = getSession();
+  if (session.phase !== 'setup') return;
+
+  const station = api.gameState.getStations().find((s) => s.id === stationId);
+  if (!station) return;
+
+  const map = mapRef ?? api.utils.getMap();
+  if (!map) return;
+
+  map.easeTo({
+    center: station.coords,
+    duration: 700,
+  });
+}
+
 function buildOverlayGeoJson(session: HideSeekSession): OverlayGeoJson {
   const stations = api.gameState.getStations();
   const stationMap = new Map(stations.map((s) => [s.id, s]));
 
   if (session.phase === 'setup') {
     const features = buildSetupFeatures(session, stationMap);
+    return { type: 'FeatureCollection', features } as unknown as OverlayGeoJson;
+  }
+
+  if (session.phase === 'reveal') {
+    const features = buildRevealFeatures(session, stationMap);
     return { type: 'FeatureCollection', features } as unknown as OverlayGeoJson;
   }
 
@@ -203,6 +297,43 @@ function ensureLayers(map: MapLibreMap): void {
       'circle-stroke-color': '#ffffff',
     },
   });
+
+  addIfMissing(`${SOURCE_ID}-reveal-circle-fill`, {
+    id: `${SOURCE_ID}-reveal-circle-fill`,
+    type: 'fill',
+    source: SOURCE_ID,
+    filter: ['==', ['get', 'kind'], 'reveal-circle-fill'],
+    paint: {
+      'fill-color': '#22c55e',
+      'fill-opacity': 0.2,
+    },
+  });
+
+  addIfMissing(`${SOURCE_ID}-reveal-circle-outline`, {
+    id: `${SOURCE_ID}-reveal-circle-outline`,
+    type: 'line',
+    source: SOURCE_ID,
+    filter: ['==', ['get', 'kind'], 'reveal-circle-outline'],
+    paint: {
+      'line-color': '#22c55e',
+      'line-width': 3,
+      'line-opacity': 0.95,
+    },
+  });
+
+  addIfMissing(`${SOURCE_ID}-hide-station`, {
+    id: `${SOURCE_ID}-hide-station`,
+    type: 'circle',
+    source: SOURCE_ID,
+    filter: ['==', ['get', 'kind'], 'hide-station'],
+    paint: {
+      'circle-radius': 11,
+      'circle-color': '#22c55e',
+      'circle-opacity': 0.95,
+      'circle-stroke-width': 3,
+      'circle-stroke-color': '#ffffff',
+    },
+  });
 }
 
 export function initDeductionMapOverlay(map: MapLibreMap): void {
@@ -220,13 +351,30 @@ export function refreshDeductionOverlay(): void {
   const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   if (!source) return;
 
-  source.setData(buildOverlayGeoJson(getSession()));
+  const session = getSession();
+  source.setData(buildOverlayGeoJson(session));
+
+  if (session.phase === 'reveal' && session.hideStationId) {
+    if (lastRevealZoomKey !== session.hideStationId) {
+      lastRevealZoomKey = session.hideStationId;
+      const hideStation = api.gameState
+        .getStations()
+        .find((s) => s.id === session.hideStationId);
+      if (hideStation) {
+        zoomToRevealStation(hideStation.coords);
+      }
+    }
+    return;
+  }
+
+  lastRevealZoomKey = null;
 }
 
 export function clearDeductionOverlay(): void {
   const map = mapRef ?? api.utils.getMap();
   if (!map) return;
 
+  lastRevealZoomKey = null;
   const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(EMPTY_FC);
 }

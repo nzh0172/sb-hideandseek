@@ -34,8 +34,15 @@ export function RevealPhase() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Badge variant={won ? 'default' : 'secondary'}>
-          {won ? 'Correct!' : 'Revealed'}
+        <Badge
+          variant="outline"
+          style={{
+            backgroundColor: won ? '#22c55e' : '#ef4444',
+            color: '#ffffff',
+            borderColor: won ? '#16a34a' : '#dc2626',
+          }}
+        >
+          <ForceText text={won ? 'Correct!' : 'Revealed'} />
         </Badge>
         {session.guessCount > 0 && (
           <ForceText

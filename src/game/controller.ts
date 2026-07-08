@@ -81,7 +81,6 @@ export function getRemainingHideSeconds(): number {
 }
 
 export function giveUp(): void {
-  clearDeductionOverlay();
   reveal('giveUp');
 }
 
@@ -90,7 +89,6 @@ export function guessStation(stationId: string): boolean {
   if (!session.hideStationId) return false;
 
   if (stationId === session.hideStationId) {
-    clearDeductionOverlay();
     reveal('correct');
     return true;
   }
@@ -190,6 +188,7 @@ export function querySameLineAsStart(): void {
 export function newRound(): void {
   clearDeductionOverlay();
   resetSession();
+  refreshDeductionOverlay();
 }
 
 export function canStartRound(): boolean {
