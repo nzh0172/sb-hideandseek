@@ -1,0 +1,10 @@
+{
+  "id": "com.naz.hide-and-seek",
+  "name": "Hide and Seek",
+  "description": "Play a game of hide and seek using your own metro network as your playground and use tools at your disposal to deduce the hider's location",
+  "version": "1.0.0",
+  "author": {
+    "name": "naz"
+  },
+  "main": "index.js"
+}
