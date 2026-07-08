@@ -42,6 +42,11 @@ export function SeekingPhase() {
       <p className="text-sm" style={{ opacity: 0.75 }}>
         Ask questions to narrow down the hider. Wrong guesses: {session.guessCount}
       </p>
+      <p className="text-xs" style={{ opacity: 0.65 }}>
+        Map dims ruled-out areas. Overlapping questions cut to their intersection.
+        Green dots = {session.possibleStationIds.length} possible hide spot
+        {session.possibleStationIds.length !== 1 ? 's' : ''}.
+      </p>
 
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">Distance from me (start station)</span>

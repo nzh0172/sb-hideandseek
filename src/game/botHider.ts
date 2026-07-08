@@ -7,6 +7,7 @@ import type { HideCandidate, GameConfig } from './types';
 export interface BotHideResult {
   ok: true;
   candidate: HideCandidate;
+  allCandidates: HideCandidate[];
 }
 
 export interface BotHideFailure {
@@ -97,5 +98,5 @@ export function pickBotHideSpot(
   }
 
   const candidate = pickFurthestCandidate(startStationId, candidates);
-  return { ok: true, candidate };
+  return { ok: true, candidate, allCandidates: candidates };
 }

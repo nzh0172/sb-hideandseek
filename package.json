@@ -26,5 +26,9 @@
     "typescript": "^5.9.3",
     "vite": "npm:rolldown-vite@latest",
     "vite-plugin-static-copy": "^3.0.0"
+  },
+  "dependencies": {
+    "@turf/mask": "^7.3.5",
+    "@turf/turf": "^7.3.5"
   }
 }

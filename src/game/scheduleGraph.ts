@@ -1,6 +1,7 @@
 /** Transit schedule graph and path validation */
 
 import type { Route, Station, StComboTiming } from '../types/game-state';
+import type { Coordinate } from '../types/core';
 import type { HideCandidate, PathLeg, ValidatedPath } from './types';
 import { getStationDisplayName } from './displayNames';
 import { getCurrentTimeOfDaySeconds } from './geo';
@@ -380,6 +381,23 @@ export function getPlayableRoutes(): Route[] {
     const info = buildRouteStopInfo(route);
     return info !== null;
   });
+}
+
+/** Station coordinates in route order, for map line overlays. */
+export function getRouteStationLineCoords(routeId: string): Coordinate[] {
+  const route = api.gameState.getRoutes().find((r) => r.id === routeId);
+  if (!route) return [];
+
+  const info = buildRouteStopInfo(route);
+  if (!info) return [];
+
+  const stationMap = new Map(api.gameState.getStations().map((s) => [s.id, s]));
+  const coords: Coordinate[] = [];
+  for (const stationId of info.stopStationIds) {
+    const station = stationMap.get(stationId);
+    if (station) coords.push(station.coords);
+  }
+  return coords;
 }
 
 export function getTimedRoutes(): Route[] {

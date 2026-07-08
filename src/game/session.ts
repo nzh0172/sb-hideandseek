@@ -1,6 +1,13 @@
 /** In-memory session state with pub/sub for React UI */
 
-import { createInitialSession, type GamePhase, type HideSeekSession, type QueryLogEntry } from './types';
+import {
+  createInitialSession,
+  type GamePhase,
+  type HideSeekSession,
+  type MapOverlay,
+  type QueryLogEntry,
+  type ValidatedPath,
+} from './types';
 
 type Listener = () => void;
 
@@ -25,6 +32,18 @@ export function resetSession(): void {
   notify();
 }
 
+export function setDeductionState(data: {
+  possibleStationIds: string[];
+  mapOverlays: MapOverlay[];
+}): void {
+  session = {
+    ...session,
+    possibleStationIds: data.possibleStationIds,
+    mapOverlays: data.mapOverlays,
+  };
+  notify();
+}
+
 export function setStartStationId(stationId: string | null): void {
   session = { ...session, startStationId: stationId };
   notify();
@@ -40,6 +59,8 @@ export function setRoundData(data: {
   validatedPath: HideSeekSession['validatedPath'];
   hideStartElapsed: number;
   hideEndElapsed: number;
+  possibleStationIds: string[];
+  candidatePathsByStation: Record<string, ValidatedPath>;
 }): void {
   session = {
     ...session,
@@ -47,6 +68,9 @@ export function setRoundData(data: {
     validatedPath: data.validatedPath,
     hideStartElapsed: data.hideStartElapsed,
     hideEndElapsed: data.hideEndElapsed,
+    possibleStationIds: data.possibleStationIds,
+    candidatePathsByStation: data.candidatePathsByStation,
+    mapOverlays: [],
     guessCount: 0,
     queryLog: [],
     revealReason: null,

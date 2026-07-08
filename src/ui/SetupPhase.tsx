@@ -42,9 +42,9 @@ export function SetupPhase() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        You are the seeker. Pick where you start — the bot will hide somewhere
-        reachable by train within {DEFAULT_CONFIG.hideRadiusKm} km and{' '}
-        {DEFAULT_CONFIG.hideDurationHours} in-game hours.
+        Pick where you start — the bot will hide somewhere reachable by train
+        within {DEFAULT_CONFIG.hideRadiusKm} km and {DEFAULT_CONFIG.hideDurationHours}{' '}
+        in-game hours. The play area boundary is shown on the map.
       </p>
 
       <div className="flex flex-col gap-1">

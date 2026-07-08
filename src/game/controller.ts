@@ -1,8 +1,16 @@
 /** Game controller: round lifecycle, timer, deduction queries */
 
 import { pickBotHideSpot } from './botHider';
+import {
+  applyDistanceFromStart,
+  applyDistanceFromStation,
+  applyLineCheck,
+  applySameLineAsStart,
+  applyTransferCount,
+} from './deduction';
 import { getRouteDisplayName, getStationDisplayNameById } from './displayNames';
 import { haversineKm } from './geo';
+import { clearDeductionOverlay, refreshDeductionOverlay } from './mapOverlay';
 import {
   getPlayableRoutes,
   isSameLineWithoutTransfer,
@@ -40,7 +48,13 @@ export function startRound(startStationId: string): boolean {
     validatedPath: outcome.candidate.path,
     hideStartElapsed,
     hideEndElapsed,
+    possibleStationIds: outcome.allCandidates.map((c) => c.stationId),
+    candidatePathsByStation: Object.fromEntries(
+      outcome.allCandidates.map((c) => [c.stationId, c.path]),
+    ),
   });
+
+  clearDeductionOverlay();
 
   api.actions.setPause(false);
   api.ui.showNotification('The hider is on the move. Good luck!', 'info');
@@ -55,6 +69,7 @@ export function tickHideTimer(): void {
   if (elapsed >= session.hideEndElapsed) {
     api.actions.setPause(true);
     transitionTo('seeking');
+    refreshDeductionOverlay();
     api.ui.showNotification('Hide time is up. Start deducing!', 'info');
   }
 }
@@ -66,6 +81,7 @@ export function getRemainingHideSeconds(): number {
 }
 
 export function giveUp(): void {
+  clearDeductionOverlay();
   reveal('giveUp');
 }
 
@@ -74,6 +90,7 @@ export function guessStation(stationId: string): boolean {
   if (!session.hideStationId) return false;
 
   if (stationId === session.hideStationId) {
+    clearDeductionOverlay();
     reveal('correct');
     return true;
   }
@@ -99,11 +116,13 @@ export function queryWithinKmFromMe(radiusKm: number): void {
   if (!startCoords || !hideCoords) return;
 
   const dist = haversineKm(startCoords, hideCoords);
-  const answer = dist <= radiusKm ? 'Yes' : 'No';
+  const within = dist <= radiusKm;
+  const answer = within ? 'Yes' : 'No';
   addQueryLog({
     question: `Within ${radiusKm} km from me?`,
     answer: `${answer} (${dist.toFixed(1)} km)`,
   });
+  applyDistanceFromStart(radiusKm, within);
 }
 
 export function queryWithinKmFromStation(
@@ -118,11 +137,13 @@ export function queryWithinKmFromStation(
   if (!ref || !hideCoords) return;
 
   const dist = haversineKm(ref.coords, hideCoords);
-  const answer = dist <= radiusKm ? 'Yes' : 'No';
+  const within = dist <= radiusKm;
+  const answer = within ? 'Yes' : 'No';
   addQueryLog({
     question: `Within ${radiusKm} km from ${getStationDisplayNameById(refStationId)}?`,
     answer: `${answer} (${dist.toFixed(1)} km)`,
   });
+  applyDistanceFromStation(refStationId, radiusKm, within);
 }
 
 export function queryOnLine(routeId: string): void {
@@ -137,6 +158,7 @@ export function queryOnLine(routeId: string): void {
     question: `On ${label}?`,
     answer: onLine ? 'Yes' : 'No',
   });
+  applyLineCheck(routeId, onLine);
 }
 
 export function queryTransferCount(): void {
@@ -147,6 +169,7 @@ export function queryTransferCount(): void {
     question: 'How many transfers?',
     answer: String(session.validatedPath.transferCount),
   });
+  applyTransferCount(session.validatedPath.transferCount);
 }
 
 export function querySameLineAsStart(): void {
@@ -161,9 +184,11 @@ export function querySameLineAsStart(): void {
     question: 'Same line as start (no transfer)?',
     answer: same ? 'Yes' : 'No',
   });
+  applySameLineAsStart(same);
 }
 
 export function newRound(): void {
+  clearDeductionOverlay();
   resetSession();
 }
 
@@ -183,12 +208,14 @@ export function validateSessionIntegrity(): void {
     !stationIds.has(session.startStationId)
   ) {
     api.ui.showNotification('Starting station was removed. Round cancelled.', 'warning');
+    clearDeductionOverlay();
     resetSession();
     return;
   }
 
   if (session.hideStationId && !stationIds.has(session.hideStationId)) {
     api.ui.showNotification('Hide station was removed. Round cancelled.', 'warning');
+    clearDeductionOverlay();
     resetSession();
   }
 }

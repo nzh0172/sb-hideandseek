@@ -46,6 +46,44 @@ export function formatGameTime(seconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/** Point reached by moving distanceKm along bearingDeg from center [lon, lat]. */
+export function destinationPointKm(
+  center: Coordinate,
+  bearingDeg: number,
+  distanceKm: number,
+): Coordinate {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+  const angular = distanceKm / EARTH_RADIUS_KM;
+  const bearing = toRad(bearingDeg);
+  const lat1 = toRad(center[1]);
+  const lon1 = toRad(center[0]);
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angular) +
+      Math.cos(lat1) * Math.sin(angular) * Math.cos(bearing),
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angular) * Math.cos(lat1),
+      Math.cos(angular) - Math.sin(lat1) * Math.sin(lat2),
+    );
+  return [toDeg(lon2), toDeg(lat2)];
+}
+
+/** Closed GeoJSON ring approximating a circle on the Earth's surface. */
+export function circlePolygonRing(
+  center: Coordinate,
+  radiusKm: number,
+  steps = 64,
+): Coordinate[] {
+  const ring: Coordinate[] = [];
+  for (let i = 0; i <= steps; i++) {
+    ring.push(destinationPointKm(center, (i / steps) * 360, radiusKm));
+  }
+  return ring;
+}
+
 const DAY_SECONDS = 86400;
 
 /** Current in-game time as seconds into the day (0–86400) */

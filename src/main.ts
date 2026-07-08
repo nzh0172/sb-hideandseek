@@ -4,6 +4,7 @@
  */
 
 import { tickHideTimer, validateSessionIntegrity } from './game/controller';
+import { initDeductionMapOverlay } from './game/mapOverlay';
 import { HideAndSeekPanel } from './ui/HideAndSeekPanel';
 
 const MOD_ID = 'com.naz.hide-and-seek';
@@ -35,11 +36,13 @@ if (!api) {
     }
   }
 
-  api.hooks.onMapReady((_map) => {
+  api.hooks.onMapReady((map) => {
     if (initialized) return;
     initialized = true;
 
     try {
+      initDeductionMapOverlay(map);
+
       api.ui.addFloatingPanel({
         id: 'hide-and-seek-panel',
         title: 'Hide and Seek',

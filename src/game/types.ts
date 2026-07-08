@@ -33,6 +33,21 @@ export interface QueryLogEntry {
   timestamp: number;
 }
 
+export type MapOverlayKind = 'distance-circle' | 'route-line';
+
+export interface MapOverlay {
+  id: string;
+  /** Unique key per question — replaces prior overlay for the same question. */
+  deductionKey: string;
+  kind: MapOverlayKind;
+  center?: [number, number];
+  radiusKm?: number;
+  routeId?: string;
+  routeIds?: string[];
+  /** True when answer was Yes (inside/on); false when No (outside/off). */
+  inclusive: boolean;
+}
+
 export interface GameConfig {
   hideRadiusKm: number;
   hideDurationHours: number;
@@ -54,6 +69,10 @@ export interface HideSeekSession {
   guessCount: number;
   queryLog: QueryLogEntry[];
   revealReason: 'correct' | 'giveUp' | null;
+  /** Schedule-valid hide candidates at round start (updated by deduction queries). */
+  possibleStationIds: string[];
+  candidatePathsByStation: Record<string, ValidatedPath>;
+  mapOverlays: MapOverlay[];
 }
 
 export function createInitialSession(): HideSeekSession {
@@ -68,5 +87,8 @@ export function createInitialSession(): HideSeekSession {
     guessCount: 0,
     queryLog: [],
     revealReason: null,
+    possibleStationIds: [],
+    candidatePathsByStation: {},
+    mapOverlays: [],
   };
 }
