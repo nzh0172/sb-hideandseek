@@ -3,7 +3,7 @@
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { circlePolygonRing } from './geo';
 import { getSession, subscribe } from './session';
-import { buildSubtractiveMask, validRegionOutlineRings } from './validRegion';
+import { buildSubtractiveMask, playAreaRegion, validRegionOutlineRings } from './validRegion';
 import type { HideSeekSession } from './types';
 
 const api = window.SubwayBuilderAPI;
@@ -18,6 +18,7 @@ const DEPRECATED_LAYER_IDS = [
   `${SOURCE_ID}-route-line-yes`,
   `${SOURCE_ID}-route-line-no`,
   `${SOURCE_ID}-circle-centers`,
+  `${SOURCE_ID}-possible-stations`,
 ];
 
 type OverlayGeoJson = Parameters<GeoJSONSource['setData']>[0];
@@ -26,7 +27,7 @@ const EMPTY_FC = { type: 'FeatureCollection', features: [] } as OverlayGeoJson;
 
 let mapRef: MapLibreMap | null = null;
 
-function buildSetupFeatures(
+function buildPlayAreaFeatures(
   session: HideSeekSession,
   stationMap: Map<string, { coords: [number, number] }>,
 ): Array<Record<string, unknown>> {
@@ -36,7 +37,7 @@ function buildSetupFeatures(
   if (!start) return [];
 
   const ring = circlePolygonRing(start.coords, session.config.hideRadiusKm);
-  const features: Array<Record<string, unknown>> = [
+  return [
     {
       type: 'Feature',
       properties: { kind: 'play-area-fill' },
@@ -47,12 +48,32 @@ function buildSetupFeatures(
       properties: { kind: 'play-area-outline' },
       geometry: { type: 'LineString', coordinates: ring },
     },
-    {
-      type: 'Feature',
-      properties: { kind: 'start-station' },
-      geometry: { type: 'Point', coordinates: start.coords },
-    },
   ];
+}
+
+function getPlayAreaForSession(session: HideSeekSession): ReturnType<typeof playAreaRegion> | null {
+  if (!session.startStationId) return null;
+  const start = api.gameState.getStations().find((s) => s.id === session.startStationId);
+  if (!start) return null;
+  return playAreaRegion(start.coords, session.config.hideRadiusKm);
+}
+
+function buildSetupFeatures(
+  session: HideSeekSession,
+  stationMap: Map<string, { coords: [number, number] }>,
+): Array<Record<string, unknown>> {
+  const features = buildPlayAreaFeatures(session, stationMap);
+
+  if (!session.startStationId) return features;
+
+  const start = stationMap.get(session.startStationId);
+  if (!start) return features;
+
+  features.push({
+    type: 'Feature',
+    properties: { kind: 'start-station' },
+    geometry: { type: 'Point', coordinates: start.coords },
+  });
 
   return features;
 }
@@ -69,8 +90,11 @@ function buildOverlayGeoJson(session: HideSeekSession): OverlayGeoJson {
   if (session.phase !== 'seeking') return EMPTY_FC;
 
   const features: Array<Record<string, unknown>> = [];
+  const playArea = getPlayAreaForSession(session);
 
-  const darkMask = buildSubtractiveMask(session.mapOverlays);
+  features.push(...buildPlayAreaFeatures(session, stationMap));
+
+  const darkMask = buildSubtractiveMask(session.mapOverlays, playArea);
   if (darkMask) {
     features.push({
       type: 'Feature',
@@ -79,12 +103,14 @@ function buildOverlayGeoJson(session: HideSeekSession): OverlayGeoJson {
     });
   }
 
-  for (const ring of validRegionOutlineRings(session.mapOverlays)) {
-    features.push({
-      type: 'Feature',
-      properties: { kind: 'valid-outline' },
-      geometry: { type: 'LineString', coordinates: ring },
-    });
+  if (session.mapOverlays.length > 0) {
+    for (const ring of validRegionOutlineRings(session.mapOverlays, playArea)) {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'valid-outline' },
+        geometry: { type: 'LineString', coordinates: ring },
+      });
+    }
   }
 
   if (session.startStationId) {
@@ -94,17 +120,6 @@ function buildOverlayGeoJson(session: HideSeekSession): OverlayGeoJson {
         type: 'Feature',
         properties: { kind: 'start-station' },
         geometry: { type: 'Point', coordinates: start.coords },
-      });
-    }
-  }
-
-  for (const stationId of session.possibleStationIds) {
-    const station = stationMap.get(stationId);
-    if (station) {
-      features.push({
-        type: 'Feature',
-        properties: { kind: 'possible-station' },
-        geometry: { type: 'Point', coordinates: station.coords },
       });
     }
   }
@@ -173,20 +188,6 @@ function ensureLayers(map: MapLibreMap): void {
       'line-color': '#38bdf8',
       'line-width': 2,
       'line-opacity': 0.9,
-    },
-  });
-
-  addIfMissing(`${SOURCE_ID}-possible-stations`, {
-    id: `${SOURCE_ID}-possible-stations`,
-    type: 'circle',
-    source: SOURCE_ID,
-    filter: ['==', ['get', 'kind'], 'possible-station'],
-    paint: {
-      'circle-radius': 9,
-      'circle-color': '#22c55e',
-      'circle-opacity': 0.85,
-      'circle-stroke-width': 2,
-      'circle-stroke-color': '#ffffff',
     },
   });
 

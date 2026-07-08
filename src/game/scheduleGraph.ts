@@ -383,6 +383,24 @@ export function getPlayableRoutes(): Route[] {
   });
 }
 
+/** Station IDs on a route in stop order (playable or partial routes). */
+export function getOrderedStationIdsForRoute(route: Route): string[] {
+  const info = buildRouteStopInfo(route);
+  if (info) return info.stopStationIds;
+
+  if ((route.stations?.length ?? 0) > 0) {
+    return route.stations!.map((s) => s.id);
+  }
+
+  const ids: string[] = [];
+  for (const station of api.gameState.getStations()) {
+    if (station.routeIds.includes(route.id) && !ids.includes(station.id)) {
+      ids.push(station.id);
+    }
+  }
+  return ids;
+}
+
 /** Station coordinates in route order, for map line overlays. */
 export function getRouteStationLineCoords(routeId: string): Coordinate[] {
   const route = api.gameState.getRoutes().find((r) => r.id === routeId);

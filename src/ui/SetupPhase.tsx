@@ -9,7 +9,7 @@ import {
 } from '../game/displayNames';
 import { getSession, setStartStationId } from '../game/session';
 import { DEFAULT_CONFIG } from '../game/types';
-import { StationSelect } from './StationSelect';
+import { StationPickerPage } from './StationPickerPage';
 import { useSession } from './useSession';
 
 const api = window.SubwayBuilderAPI;
@@ -48,17 +48,12 @@ export function SetupPhase() {
       </p>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor="start-station">Starting station</Label>
-        {stations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No stations built</p>
-        ) : (
-          <StationSelect
-            id="start-station"
-            value={selectedId}
-            stations={stations}
-            onChange={(id) => setStartStationId(id || null)}
-          />
-        )}
+        <StationPickerPage
+          value={selectedId}
+          stations={stations}
+          onChange={(id) => setStartStationId(id || null)}
+          title="Starting station"
+        />
       </div>
 
       {!canStart && (

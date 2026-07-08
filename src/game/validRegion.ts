@@ -115,13 +115,21 @@ export function uniqueOverlays(overlays: MapOverlay[]): MapOverlay[] {
   return [...byKey.values()];
 }
 
-/** Intersection of all inclusive constraints minus exclusive ones. */
-export function computeValidRegion(overlays: MapOverlay[]): AreaFeature | null {
+/** Intersection of play area and inclusive constraints minus exclusive ones. */
+export function computeValidRegion(
+  overlays: MapOverlay[],
+  playArea: AreaFeature | null = null,
+): AreaFeature | null {
   const unique = uniqueOverlays(overlays);
-  if (unique.length === 0) return null;
-
   const bounds = getBoundsPolygon();
-  let valid: AreaFeature | null = bounds;
+
+  let valid: AreaFeature | null = playArea ? intersectArea(bounds, playArea) : null;
+
+  if (unique.length === 0) {
+    return valid;
+  }
+
+  valid = valid ?? bounds;
 
   for (const overlay of unique) {
     const region = overlayRegion(overlay);
@@ -140,8 +148,11 @@ export function computeValidRegion(overlays: MapOverlay[]): AreaFeature | null {
 }
 
 /** Dark fill polygon: map bounds with valid region cut out as hole(s). */
-export function buildSubtractiveMask(overlays: MapOverlay[]): AreaFeature | null {
-  const valid = computeValidRegion(overlays);
+export function buildSubtractiveMask(
+  overlays: MapOverlay[],
+  playArea: AreaFeature | null = null,
+): AreaFeature | null {
+  const valid = computeValidRegion(overlays, playArea);
   if (!valid) return null;
 
   const bounds = getBoundsPolygon();
@@ -155,8 +166,11 @@ export function buildSubtractiveMask(overlays: MapOverlay[]): AreaFeature | null
 }
 
 /** Outline rings for the valid bright region (optional border). */
-export function validRegionOutlineRings(overlays: MapOverlay[]): Position[][] {
-  const valid = computeValidRegion(overlays);
+export function validRegionOutlineRings(
+  overlays: MapOverlay[],
+  playArea: AreaFeature | null = null,
+): Position[][] {
+  const valid = computeValidRegion(overlays, playArea);
   if (!valid) return [];
 
   if (valid.geometry.type === 'Polygon') {
@@ -166,4 +180,16 @@ export function validRegionOutlineRings(overlays: MapOverlay[]): Position[][] {
 
   const multi = valid.geometry.coordinates as Position[][][];
   return multi.map((poly) => poly[0]!);
+}
+
+export function playAreaRegion(
+  center: [number, number],
+  radiusKm: number,
+): AreaFeature {
+  return asArea(
+    circle(center, radiusKm, {
+      units: 'kilometers',
+      steps: 64,
+    }),
+  )!;
 }
