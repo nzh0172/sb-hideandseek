@@ -6,9 +6,17 @@ import {
   findRouteIdForStation,
   searchStations,
 } from '../game/stationCatalog';
-import { getStationDisplayName, invalidateStationLabels } from '../game/displayNames';
+import {
+  areSameStationGroup,
+  getGroupRepresentative,
+  getRouteBulletMeta,
+  invalidateStationLabels,
+} from '../game/displayNames';
+import { OTHER_ROUTE_ID } from '../game/stationCatalog';
 import type { Station } from '../types/game-state';
-import { ForceText, StationListItem } from './ForceText';
+import { ForceText } from './ForceText';
+import { LineBullet } from './LineBullet';
+import { StationLabel, StationListItem } from './StationLabel';
 
 const api = window.SubwayBuilderAPI;
 const { Button, Input } = api.utils.components as Record<string, React.ComponentType<any>>;
@@ -22,18 +30,28 @@ interface StationPickerPageProps {
 }
 
 function RouteListItem({
-  label,
-  color,
+  routeId,
+  displayName,
+  routeColor,
   selected,
   count,
   onPick,
 }: {
-  label: string;
-  color?: string;
+  routeId: string;
+  displayName: string;
+  routeColor?: string;
   selected: boolean;
   count: number;
   onPick: () => void;
 }) {
+  const routes = api.gameState.getRoutes();
+  const routeIndex = routes.findIndex((r) => r.id === routeId);
+  const route = routeIndex >= 0 ? routes[routeIndex] : null;
+  const bullet =
+    routeId !== OTHER_ROUTE_ID && route
+      ? getRouteBulletMeta(route, routeIndex)
+      : null;
+
   return (
     <div
       role="button"
@@ -56,16 +74,26 @@ function RouteListItem({
         borderBottom: '1px solid rgba(128,128,128,0.12)',
       }}
     >
-      <span
-        style={{
-          width: '0.625rem',
-          height: '0.625rem',
-          borderRadius: '999px',
-          flexShrink: 0,
-          background: color && color.startsWith('#') ? color : 'rgba(128,128,128,0.55)',
-        }}
+      {bullet ? (
+        <LineBullet bullet={bullet} size={18} />
+      ) : (
+        <span
+          style={{
+            width: '0.625rem',
+            height: '0.625rem',
+            borderRadius: '999px',
+            flexShrink: 0,
+            background:
+              routeColor && routeColor.startsWith('#')
+                ? routeColor
+                : 'rgba(128,128,128,0.55)',
+          }}
+        />
+      )}
+      <ForceText
+        text={bullet?.label ?? displayName}
+        style={{ flex: 1, minWidth: 0 }}
       />
-      <ForceText text={label} style={{ flex: 1, minWidth: 0 }} />
       <ForceText
         text={String(count)}
         style={{ fontSize: '0.75rem', opacity: 0.6, flexShrink: 0 }}
@@ -118,14 +146,14 @@ export function StationPickerPage({
     if (!selectedEntry) return [];
     const byId = new Map(stations.map((s) => [s.id, s]));
     return selectedEntry.stationIds
-      .map((id) => byId.get(id))
+      .map((id) => byId.get(id) ?? byId.get(getGroupRepresentative(id)))
       .filter((s): s is Station => s !== undefined);
   }, [selectedEntry, stations]);
 
   const visibleStations = searching ? searchResults : routeStations;
 
   const pickStation = (stationId: string) => {
-    onChange(stationId);
+    onChange(getGroupRepresentative(stationId));
     setSearchQuery('');
   };
 
@@ -137,7 +165,17 @@ export function StationPickerPage({
             <ForceText text="Back" />
           </Button>
         )}
-        <ForceText text={title} className="text-sm font-medium" />
+        {value ? (
+          <StationLabel
+            stationId={value}
+            prefix={`${title}:`}
+            style={{ minWidth: 0, flex: 1 }}
+            nameStyle={{ fontSize: '0.875rem', fontWeight: 500 }}
+            bulletSize={16}
+          />
+        ) : (
+          <ForceText text={title} className="text-sm font-medium" />
+        )}
       </div>
 
       <Input
@@ -176,8 +214,9 @@ export function StationPickerPage({
             {catalog.map((entry, index) => (
               <RouteListItem
                 key={index}
-                label={entry.displayName}
-                color={entry.routeColor}
+                routeId={entry.routeId}
+                displayName={entry.displayName}
+                routeColor={entry.routeColor}
                 selected={!searching && entry.routeId === selectedRouteId}
                 count={entry.stationIds.length}
                 onPick={() => {
@@ -204,8 +243,8 @@ export function StationPickerPage({
             {visibleStations.map((station, index) => (
               <StationListItem
                 key={index}
-                label={getStationDisplayName(station)}
-                selected={station.id === value}
+                stationId={station.id}
+                selected={areSameStationGroup(station.id, value)}
                 onPick={() => pickStation(station.id)}
               />
             ))}

@@ -8,7 +8,7 @@ import {
   applySameLineAsStart,
   applyTransferCount,
 } from './deduction';
-import { getRouteDisplayName, getStationDisplayNameById } from './displayNames';
+import { areSameStationGroup, getRouteDisplayName, getStationDisplayNameById } from './displayNames';
 import { haversineKm } from './geo';
 import { clearDeductionOverlay, refreshDeductionOverlay } from './mapOverlay';
 import {
@@ -88,7 +88,7 @@ export function guessStation(stationId: string): boolean {
   const session = getSession();
   if (!session.hideStationId) return false;
 
-  if (stationId === session.hideStationId) {
+  if (areSameStationGroup(stationId, session.hideStationId)) {
     reveal('correct');
     return true;
   }
@@ -206,14 +206,14 @@ export function validateSessionIntegrity(): void {
     session.startStationId &&
     !stationIds.has(session.startStationId)
   ) {
-    api.ui.showNotification('Starting station was removed. Round cancelled.', 'warning');
+    // api.ui.showNotification('Starting station was removed. Round cancelled.', 'warning');
     clearDeductionOverlay();
     resetSession();
     return;
   }
 
   if (session.hideStationId && !stationIds.has(session.hideStationId)) {
-    api.ui.showNotification('Hide station was removed. Round cancelled.', 'warning');
+    // api.ui.showNotification('Hide station was removed. Round cancelled.', 'warning');
     clearDeductionOverlay();
     resetSession();
   }

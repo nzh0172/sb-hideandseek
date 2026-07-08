@@ -6,12 +6,20 @@ import type { HideCandidate, PathLeg, ValidatedPath } from './types';
 import { getStationDisplayName } from './displayNames';
 import { getCurrentTimeOfDaySeconds } from './geo';
 import { countRouteTransfers } from './pathFormat';
+import { areSameStationGroup } from './stationGroups';
 
 const api = window.SubwayBuilderAPI;
 
 const TRANSFER_WALK_SECONDS = 120;
 const AVG_TRAIN_SPEED_MPS = 12;
 const DEFAULT_DWELL_SECONDS = 20;
+/** Cap graph expansions so large maps cannot freeze the game thread. */
+const MAX_SEARCH_EXPANSIONS = 40_000;
+/** Bucket visit times to prune duplicate search states. */
+const VISIT_TIME_BUCKET_SECONDS = 30;
+
+let cachedStNodeMap: Map<string, string> | null = null;
+let cachedStationCount = -1;
 
 interface GraphNode {
   stationId: string;
@@ -77,10 +85,27 @@ function canonicalize(stationId: string, groups: Map<string, string>): string {
   return groups.get(stationId) ?? stationId;
 }
 
-function resolveStNodeToStationId(stNodeId: string, route?: Route): string | null {
-  for (const station of api.gameState.getStations()) {
-    if (station.stNodeIds.includes(stNodeId)) return station.id;
+function getStNodeToStationIdMap(): Map<string, string> {
+  const stations = api.gameState.getStations();
+  if (cachedStNodeMap && cachedStationCount === stations.length) {
+    return cachedStNodeMap;
   }
+
+  const map = new Map<string, string>();
+  for (const station of stations) {
+    for (const stNodeId of station.stNodeIds) {
+      map.set(stNodeId, station.id);
+    }
+  }
+
+  cachedStNodeMap = map;
+  cachedStationCount = stations.length;
+  return map;
+}
+
+function resolveStNodeToStationId(stNodeId: string, route?: Route): string | null {
+  const cached = getStNodeToStationIdMap().get(stNodeId);
+  if (cached) return cached;
 
   for (const station of route?.stations ?? []) {
     if (station.stNodeIds.includes(stNodeId) || station.id === stNodeId) {
@@ -337,28 +362,27 @@ function buildRouteEdges(info: RouteStopInfo, stationMap: Map<string, Station>):
   const routeName = route.name ?? route.bullet ?? route.id;
   const routeBullet = route.bullet ?? '?';
 
-  for (let fromIndex = 0; fromIndex < stopStationIds.length; fromIndex++) {
-    for (let toIndex = fromIndex + 1; toIndex < stopStationIds.length; toIndex++) {
-      const fromStationId = stopStationIds[fromIndex]!;
-      const toStationId = stopStationIds[toIndex]!;
-      const fromStation = stationMap.get(fromStationId);
-      const toStation = stationMap.get(toStationId);
-      if (!fromStation || !toStation) continue;
+  for (let fromIndex = 0; fromIndex < stopStationIds.length - 1; fromIndex++) {
+    const toIndex = fromIndex + 1;
+    const fromStationId = stopStationIds[fromIndex]!;
+    const toStationId = stopStationIds[toIndex]!;
+    const fromStation = stationMap.get(fromStationId);
+    const toStation = stationMap.get(toStationId);
+    if (!fromStation || !toStation) continue;
 
-      edges.push({
-        fromStopIndex: fromIndex,
-        to: { stationId: toStationId, routeId: route.id, stopIndex: toIndex },
-        leg: {
-          routeId: route.id,
-          routeName,
-          routeBullet,
-          fromStationId,
-          fromStationName: fromStation.name,
-          toStationId,
-          toStationName: toStation.name,
-        },
-      });
-    }
+    edges.push({
+      fromStopIndex: fromIndex,
+      to: { stationId: toStationId, routeId: route.id, stopIndex: toIndex },
+      leg: {
+        routeId: route.id,
+        routeName,
+        routeBullet,
+        fromStationId,
+        fromStationName: fromStation.name,
+        toStationId,
+        toStationName: toStation.name,
+      },
+    });
   }
 
   return edges;
@@ -374,6 +398,63 @@ function rebuildPath(legs: PathLeg[], totalTimeSeconds: number): ValidatedPath {
     totalTimeSeconds,
     transferCount: countRouteTransfers(legs),
   };
+}
+
+function heapPush(heap: SearchState[], item: SearchState): void {
+  heap.push(item);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = (index - 1) >> 1;
+    if (heap[parent]!.journeyElapsed <= heap[index]!.journeyElapsed) break;
+    [heap[parent], heap[index]] = [heap[index]!, heap[parent]!];
+    index = parent;
+  }
+}
+
+function heapPop(heap: SearchState[]): SearchState | undefined {
+  if (heap.length === 0) return undefined;
+  const top = heap[0]!;
+  const last = heap.pop()!;
+  if (heap.length === 0) return top;
+
+  heap[0] = last;
+  let index = 0;
+  while (true) {
+    let smallest = index;
+    const left = index * 2 + 1;
+    const right = left + 1;
+    if (left < heap.length && heap[left]!.journeyElapsed < heap[smallest]!.journeyElapsed) {
+      smallest = left;
+    }
+    if (right < heap.length && heap[right]!.journeyElapsed < heap[smallest]!.journeyElapsed) {
+      smallest = right;
+    }
+    if (smallest === index) break;
+    [heap[index], heap[smallest]] = [heap[smallest]!, heap[index]!];
+    index = smallest;
+  }
+
+  return top;
+}
+
+function buildTransferIndex(
+  routeInfos: RouteStopInfo[],
+  groups: Map<string, string>,
+): Map<string, GraphNode[]> {
+  const byCanonical = new Map<string, GraphNode[]>();
+
+  for (const info of routeInfos) {
+    for (let i = 0; i < info.stopStationIds.length; i++) {
+      const stationId = info.stopStationIds[i]!;
+      const canon = canonicalize(stationId, groups);
+      const node: GraphNode = { stationId, routeId: info.route.id, stopIndex: i };
+      const list = byCanonical.get(canon);
+      if (list) list.push(node);
+      else byCanonical.set(canon, [node]);
+    }
+  }
+
+  return byCanonical;
 }
 
 export function getPlayableRoutes(): Route[] {
@@ -416,6 +497,59 @@ export function getRouteStationLineCoords(routeId: string): Coordinate[] {
     if (station) coords.push(station.coords);
   }
   return coords;
+}
+
+function stationCoords(stationId: string): Coordinate | null {
+  return api.gameState.getStations().find((s) => s.id === stationId)?.coords ?? null;
+}
+
+function findStopIndex(stopStationIds: string[], stationId: string): number {
+  return stopStationIds.findIndex((id) => areSameStationGroup(id, stationId));
+}
+
+/** Coordinates along a route between two stops (inclusive), following stop order. */
+export function getRouteSegmentCoords(
+  routeId: string,
+  fromStationId: string,
+  toStationId: string,
+): Coordinate[] {
+  const route = api.gameState.getRoutes().find((r) => r.id === routeId);
+  if (!route) {
+    const from = stationCoords(fromStationId);
+    const to = stationCoords(toStationId);
+    return from && to ? [from, to] : [];
+  }
+
+  const info = buildRouteStopInfo(route);
+  if (!info) {
+    const from = stationCoords(fromStationId);
+    const to = stationCoords(toStationId);
+    return from && to ? [from, to] : [];
+  }
+
+  const fromIdx = findStopIndex(info.stopStationIds, fromStationId);
+  const toIdx = findStopIndex(info.stopStationIds, toStationId);
+  if (fromIdx < 0 || toIdx < 0) {
+    const from = stationCoords(fromStationId);
+    const to = stationCoords(toStationId);
+    return from && to ? [from, to] : [];
+  }
+
+  const min = Math.min(fromIdx, toIdx);
+  const max = Math.max(fromIdx, toIdx);
+  const stationMap = new Map(api.gameState.getStations().map((s) => [s.id, s]));
+  const coords: Coordinate[] = [];
+
+  for (let i = min; i <= max; i++) {
+    const station = stationMap.get(info.stopStationIds[i]!);
+    if (station) coords.push(station.coords);
+  }
+
+  if (coords.length >= 2) return coords;
+
+  const from = stationCoords(fromStationId);
+  const to = stationCoords(toStationId);
+  return from && to ? [from, to] : [];
 }
 
 export function getTimedRoutes(): Route[] {
@@ -522,22 +656,28 @@ export function findValidHideCandidates(
   const startNodes = collectStartNodes(routeInfos, startStationId, groups);
   if (startNodes.length === 0) return [];
 
+  const transfersByCanonical = buildTransferIndex(routeInfos, groups);
   const startTime = getCurrentTimeOfDaySeconds();
   const bestByStation = new Map<string, ValidatedPath>();
-  const queue: SearchState[] = startNodes.map((node) => ({
-    node,
-    readyAt: startTime,
-    journeyElapsed: 0,
-    legs: [],
-  }));
+  const heap: SearchState[] = [];
+  for (const node of startNodes) {
+    heapPush(heap, {
+      node,
+      readyAt: startTime,
+      journeyElapsed: 0,
+      legs: [],
+    });
+  }
   const visited = new Set<string>();
+  let expansions = 0;
 
-  while (queue.length > 0) {
-    queue.sort((a, b) => a.journeyElapsed - b.journeyElapsed);
-    const current = queue.shift()!;
+  while (heap.length > 0) {
+    if (expansions++ >= MAX_SEARCH_EXPANSIONS) break;
+
+    const current = heapPop(heap)!;
     const canonStation = canonicalize(current.node.stationId, groups);
 
-    const visitKey = `${canonStation}|${current.node.routeId}|${current.node.stopIndex}|${Math.floor(current.journeyElapsed)}`;
+    const visitKey = `${canonStation}|${current.node.routeId}|${current.node.stopIndex}|${Math.floor(current.journeyElapsed / VISIT_TIME_BUCKET_SECONDS)}`;
     if (visited.has(visitKey)) continue;
     visited.add(visitKey);
 
@@ -572,26 +712,25 @@ export function findValidHideCandidates(
       if (!info) continue;
 
       const next = tryTraverseEdge(current, edge, info, stationMap, maxTravelSeconds);
-      if (next) queue.push(next);
+      if (next) heapPush(heap, next);
     }
 
-    for (const info of routeInfos) {
-      for (let i = 0; i < info.stopStationIds.length; i++) {
-        const stationId = info.stopStationIds[i]!;
-        if (
-          canonicalize(stationId, groups) === canonStation &&
-          !(info.route.id === current.node.routeId && i === current.node.stopIndex)
-        ) {
-          const transferJourney = current.journeyElapsed + TRANSFER_WALK_SECONDS;
-          if (transferJourney <= maxTravelSeconds) {
-            queue.push({
-              node: { stationId, routeId: info.route.id, stopIndex: i },
-              readyAt: normalizeTimeOfDay(current.readyAt + TRANSFER_WALK_SECONDS),
-              journeyElapsed: transferJourney,
-              legs: current.legs,
-            });
-          }
-        }
+    for (const transferNode of transfersByCanonical.get(canonStation) ?? []) {
+      if (
+        transferNode.routeId === current.node.routeId &&
+        transferNode.stopIndex === current.node.stopIndex
+      ) {
+        continue;
+      }
+
+      const transferJourney = current.journeyElapsed + TRANSFER_WALK_SECONDS;
+      if (transferJourney <= maxTravelSeconds) {
+        heapPush(heap, {
+          node: transferNode,
+          readyAt: normalizeTimeOfDay(current.readyAt + TRANSFER_WALK_SECONDS),
+          journeyElapsed: transferJourney,
+          legs: current.legs,
+        });
       }
     }
   }

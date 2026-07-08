@@ -16,6 +16,7 @@ import {
 } from '../game/configScale';
 import {
   compareStationLabels,
+  getGroupRepresentative,
   getSortedStations,
   invalidateStationLabels,
 } from '../game/displayNames';
@@ -122,8 +123,9 @@ export function SetupPhase() {
           value={selectedId}
           stations={stations}
           onChange={(id) => {
-            setStartStationId(id || null);
-            if (id) centerMapOnStation(id);
+            const rep = id ? getGroupRepresentative(id) : null;
+            setStartStationId(rep);
+            if (rep) centerMapOnStation(rep);
           }}
           title="Starting station"
         />

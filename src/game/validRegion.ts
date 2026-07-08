@@ -16,7 +16,8 @@ import type { MapOverlay } from './types';
 
 const api = window.SubwayBuilderAPI;
 
-const ROUTE_CORRIDOR_KM = 0.35;
+/** Buffer around route lines for line-check region — wider than the drawn track. */
+const ROUTE_CORRIDOR_KM = 0.20;
 const BOUNDS_PADDING_DEG = 0.15;
 
 type Position = [number, number] | [number, number, number];
@@ -204,7 +205,7 @@ export function buildSubtractiveMask(
   return differenceArea(bounds, valid) ?? bounds;
 }
 
-/** Outline rings for the valid bright region (optional border). */
+/** Outline rings for the valid bright region (outer boundary and hole edges). */
 export function validRegionOutlineRings(
   overlays: MapOverlay[],
   playArea: AreaFeature | null = null,
@@ -212,13 +213,23 @@ export function validRegionOutlineRings(
   const valid = computeValidRegion(overlays, playArea);
   if (!valid) return [];
 
+  const rings: Position[][] = [];
+
   if (valid.geometry.type === 'Polygon') {
     const coords = valid.geometry.coordinates as Position[][];
-    return [coords[0]!];
+    for (const ring of coords) {
+      if (ring.length >= 2) rings.push(ring);
+    }
+    return rings;
   }
 
   const multi = valid.geometry.coordinates as Position[][][];
-  return multi.map((poly) => poly[0]!);
+  for (const poly of multi) {
+    for (const ring of poly) {
+      if (ring.length >= 2) rings.push(ring);
+    }
+  }
+  return rings;
 }
 
 export function playAreaRegion(

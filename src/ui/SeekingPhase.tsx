@@ -1,12 +1,7 @@
 /** Seeking phase: deduction tools and guess */
 
 import { useState } from 'react';
-import {
-  compareRouteLabels,
-  getRouteDisplayName,
-  getStationDisplayNameById,
-  getSortedStations,
-} from '../game/displayNames';
+import { getSortedStations } from '../game/displayNames';
 import {
   giveUp,
   guessStation,
@@ -16,11 +11,13 @@ import {
   queryWithinKmFromMe,
   queryWithinKmFromStation,
 } from '../game/controller';
+import { ForceText } from './ForceText';
 import { LabeledButton } from './LabeledButton';
+import { LinePickerPage } from './LinePickerPage';
 import { QuestionLog } from './QuestionLog';
 import { RoundStartInfo } from './RoundStartInfo';
+import { StationLabel } from './StationLabel';
 import { StationPickerPage } from './StationPickerPage';
-import { ForceText } from './ForceText';
 import { useSession } from './useSession';
 
 const api = window.SubwayBuilderAPI;
@@ -28,14 +25,11 @@ const { Button, Label } = api.utils.components as Record<string, React.Component
 
 const DISTANCE_OPTIONS = [1, 2, 5, 10, 20];
 
-type PickerTarget = 'ref' | 'guess' | null;
+type PickerTarget = 'ref' | 'guess' | 'line' | null;
 
 export function SeekingPhase() {
   const session = useSession();
   const [stations] = useState(getSortedStations);
-  const [routes] = useState(() =>
-    [...api.gameState.getRoutes()].sort(compareRouteLabels),
-  );
   const [refStationId, setRefStationId] = useState(stations[0]?.id ?? '');
   const [guessId, setGuessId] = useState(stations[0]?.id ?? '');
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
@@ -59,6 +53,18 @@ export function SeekingPhase() {
         stations={stations}
         onChange={setGuessId}
         title="Guess station"
+        onBack={() => setPickerTarget(null)}
+      />
+    );
+  }
+
+  if (pickerTarget === 'line') {
+    return (
+      <LinePickerPage
+        onPick={(routeId) => {
+          queryOnLine(routeId);
+          setPickerTarget(null);
+        }}
         onBack={() => setPickerTarget(null)}
       />
     );
@@ -92,11 +98,20 @@ export function SeekingPhase() {
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">Distance from station</span>
         <div className="flex items-center gap-2">
-          <ForceText
-            text={refStationId ? getStationDisplayNameById(refStationId) : 'Pick a station'}
-            className="text-sm"
-            style={{ flex: 1, minWidth: 0 }}
-          />
+          {refStationId ? (
+            <StationLabel
+              stationId={refStationId}
+              style={{ flex: 1, minWidth: 0, fontSize: '0.875rem' }}
+              nameStyle={{ fontSize: '0.875rem' }}
+              bulletSize={16}
+            />
+          ) : (
+            <ForceText
+              text="Pick a station"
+              className="text-sm"
+              style={{ flex: 1, minWidth: 0 }}
+            />
+          )}
           <Button
             type="button"
             variant="outline"
@@ -120,15 +135,9 @@ export function SeekingPhase() {
 
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">Line check</span>
-        <div className="flex flex-wrap gap-1">
-          {routes.map((r, index) => (
-            <LabeledButton
-              key={index}
-              label={getRouteDisplayName(r, index)}
-              onClick={() => queryOnLine(r.id)}
-            />
-          ))}
-        </div>
+        <Button variant="secondary" onClick={() => setPickerTarget('line')}>
+          <ForceText text="Select line" />
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-1">
@@ -145,11 +154,20 @@ export function SeekingPhase() {
       <div className="flex flex-col gap-1 border-t pt-3">
         <Label htmlFor="guess-station">Guess station</Label>
         <div className="flex items-center gap-2">
-          <ForceText
-            text={guessId ? getStationDisplayNameById(guessId) : 'Pick a station'}
-            className="text-sm"
-            style={{ flex: 1, minWidth: 0 }}
-          />
+          {guessId ? (
+            <StationLabel
+              stationId={guessId}
+              style={{ flex: 1, minWidth: 0, fontSize: '0.875rem' }}
+              nameStyle={{ fontSize: '0.875rem' }}
+              bulletSize={16}
+            />
+          ) : (
+            <ForceText
+              text="Pick a station"
+              className="text-sm"
+              style={{ flex: 1, minWidth: 0 }}
+            />
+          )}
           <Button
             type="button"
             variant="outline"

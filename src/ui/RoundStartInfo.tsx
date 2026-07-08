@@ -1,28 +1,28 @@
 /** Starting station and time for an active round */
 
-import { getStationDisplayNameById } from '../game/displayNames';
 import { formatGameTime } from '../game/geo';
 import type { HideSeekSession } from '../game/types';
 import { ForceText } from './ForceText';
+import { StationLabel } from './StationLabel';
 
 export function RoundStartInfo({ session }: { session: HideSeekSession }) {
-  const startLabel = session.startStationId
-    ? getStationDisplayNameById(session.startStationId)
-    : null;
   const startTimeLabel =
     session.hideStartElapsed > 0
       ? formatGameTime(session.hideStartElapsed)
       : null;
 
-  if (!startLabel && !startTimeLabel) return null;
+  if (!session.startStationId && !startTimeLabel) return null;
 
   return (
     <div className="flex flex-col gap-1 rounded border p-2">
-      {startLabel && (
-        <ForceText
-          text={`Starting station: ${startLabel}`}
+      {session.startStationId && (
+        <StationLabel
+          stationId={session.startStationId}
+          prefix="Starting station:"
           as="div"
           style={{ fontSize: '13px' }}
+          nameStyle={{ fontSize: '13px' }}
+          bulletSize={16}
         />
       )}
       {startTimeLabel && (

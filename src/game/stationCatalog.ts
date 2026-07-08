@@ -9,6 +9,7 @@ import {
   getStationDisplayName,
 } from './displayNames';
 import { getOrderedStationIdsForRoute } from './scheduleGraph';
+import { collapseStationIdsByGroup, getGroupRepresentative } from './stationGroups';
 
 const api = window.SubwayBuilderAPI;
 
@@ -29,11 +30,12 @@ export function buildStationCatalog(allowedStations: Station[]): RouteCatalogEnt
   const entries: RouteCatalogEntry[] = [];
 
   routes.forEach((route, index) => {
-    const stationIds = getOrderedStationIdsForRoute(route).filter((id) => {
-      if (!allowedIds.has(id)) return false;
+    const rawIds = getOrderedStationIdsForRoute(route).filter((id) => allowedIds.has(id));
+    const stationIds = collapseStationIdsByGroup(rawIds);
+
+    for (const id of rawIds) {
       assigned.add(id);
-      return true;
-    });
+    }
 
     if (stationIds.length === 0) return;
 
@@ -45,10 +47,12 @@ export function buildStationCatalog(allowedStations: Station[]): RouteCatalogEnt
     });
   });
 
-  const otherIds = allowedStations
-    .filter((s) => !assigned.has(s.id))
-    .sort(compareStationLabels)
-    .map((s) => s.id);
+  const otherIds = collapseStationIdsByGroup(
+    allowedStations
+      .filter((s) => !assigned.has(s.id))
+      .sort(compareStationLabels)
+      .map((s) => s.id),
+  );
 
   if (otherIds.length > 0) {
     entries.push({
@@ -65,8 +69,11 @@ export function findRouteIdForStation(
   catalog: RouteCatalogEntry[],
   stationId: string,
 ): string {
+  const rep = getGroupRepresentative(stationId);
   for (const entry of catalog) {
-    if (entry.stationIds.includes(stationId)) return entry.routeId;
+    if (entry.stationIds.some((id) => getGroupRepresentative(id) === rep)) {
+      return entry.routeId;
+    }
   }
   return catalog[0]?.routeId ?? OTHER_ROUTE_ID;
 }
@@ -78,11 +85,21 @@ export function searchStations(
   const trimmed = query.trim().toLowerCase();
   if (!trimmed) return [];
 
-  return allowedStations
-    .filter((station) => {
-      const display = getStationDisplayName(station).toLowerCase();
-      const base = getStationBaseName(station.id).toLowerCase();
-      return display.includes(trimmed) || base.includes(trimmed);
-    })
-    .sort(compareStationLabels);
+  const byId = new Map(allowedStations.map((s) => [s.id, s]));
+  const seen = new Set<string>();
+  const results: Station[] = [];
+
+  for (const station of allowedStations) {
+    const display = getStationDisplayName(station).toLowerCase();
+    const base = getStationBaseName(station.id).toLowerCase();
+    if (!display.includes(trimmed) && !base.includes(trimmed)) continue;
+
+    const rep = getGroupRepresentative(station.id);
+    if (seen.has(rep)) continue;
+    seen.add(rep);
+
+    results.push(byId.get(rep) ?? station);
+  }
+
+  return results.sort(compareStationLabels);
 }

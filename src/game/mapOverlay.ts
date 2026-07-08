@@ -2,6 +2,8 @@
 
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { circlePolygonRing } from './geo';
+import { mergeLegsByRoute } from './pathFormat';
+import { getRouteSegmentCoords } from './scheduleGraph';
 import { getSession, subscribe } from './session';
 import { buildSubtractiveMask, playAreaRegion, validRegionOutlineRings } from './validRegion';
 import type { HideSeekSession } from './types';
@@ -31,6 +33,26 @@ const REVEAL_HIGHLIGHT_RADIUS_KM = 0.5;
 let mapRef: MapLibreMap | null = null;
 let lastRevealZoomKey: string | null = null;
 let setupPlayAreaVisible = true;
+let revealPathVisible = true;
+let revealDeductionVisible = true;
+
+export function isRevealPathVisible(): boolean {
+  return revealPathVisible;
+}
+
+export function setRevealPathVisible(visible: boolean): void {
+  revealPathVisible = visible;
+  refreshDeductionOverlay();
+}
+
+export function isRevealDeductionVisible(): boolean {
+  return revealDeductionVisible;
+}
+
+export function setRevealDeductionVisible(visible: boolean): void {
+  revealDeductionVisible = visible;
+  refreshDeductionOverlay();
+}
 
 export function isSetupPlayAreaVisible(): boolean {
   return setupPlayAreaVisible;
@@ -96,6 +118,42 @@ function buildSetupFeatures(
   return features;
 }
 
+function buildRevealPathFeatures(session: HideSeekSession): Array<Record<string, unknown>> {
+  if (!revealPathVisible || !session.validatedPath) return [];
+
+  const api = window.SubwayBuilderAPI;
+  const features: Array<Record<string, unknown>> = [];
+  const merged = mergeLegsByRoute(session.validatedPath.legs);
+
+  for (const leg of merged) {
+    const coords = getRouteSegmentCoords(leg.routeId, leg.fromStationId, leg.toStationId);
+    if (coords.length < 2) continue;
+
+    const route = api.gameState.getRoutes().find((r) => r.id === leg.routeId);
+    features.push({
+      type: 'Feature',
+      properties: {
+        kind: 'reveal-path-line',
+        routeColor: route?.color ?? '#f59e0b',
+      },
+      geometry: { type: 'LineString', coordinates: coords },
+    });
+  }
+
+  if (session.startStationId) {
+    const start = api.gameState.getStations().find((s) => s.id === session.startStationId);
+    if (start) {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'reveal-path-start' },
+        geometry: { type: 'Point', coordinates: start.coords },
+      });
+    }
+  }
+
+  return features;
+}
+
 function buildRevealFeatures(
   session: HideSeekSession,
   stationMap: Map<string, { coords: [number, number] }>,
@@ -106,7 +164,7 @@ function buildRevealFeatures(
   if (!hideStation) return [];
 
   const ring = circlePolygonRing(hideStation.coords, REVEAL_HIGHLIGHT_RADIUS_KM);
-  return [
+  const features: Array<Record<string, unknown>> = [
     {
       type: 'Feature',
       properties: { kind: 'reveal-circle-fill' },
@@ -122,7 +180,10 @@ function buildRevealFeatures(
       properties: { kind: 'hide-station' },
       geometry: { type: 'Point', coordinates: hideStation.coords },
     },
+    ...buildRevealPathFeatures(session),
   ];
+
+  return features;
 }
 
 function zoomToRevealStation(coords: [number, number]): void {
@@ -167,22 +228,10 @@ export function centerMapOnStation(stationId: string): void {
   });
 }
 
-function buildOverlayGeoJson(session: HideSeekSession): OverlayGeoJson {
-  const stations = api.gameState.getStations();
-  const stationMap = new Map(stations.map((s) => [s.id, s]));
-
-  if (session.phase === 'setup') {
-    const features = buildSetupFeatures(session, stationMap);
-    return { type: 'FeatureCollection', features } as unknown as OverlayGeoJson;
-  }
-
-  if (session.phase === 'reveal') {
-    const features = buildRevealFeatures(session, stationMap);
-    return { type: 'FeatureCollection', features } as unknown as OverlayGeoJson;
-  }
-
-  if (session.phase !== 'seeking') return EMPTY_FC;
-
+function buildQuestionDeductionFeatures(
+  session: HideSeekSession,
+  stationMap: Map<string, { coords: [number, number] }>,
+): Array<Record<string, unknown>> {
   const features: Array<Record<string, unknown>> = [];
   const playArea = getPlayAreaForSession(session);
 
@@ -218,6 +267,29 @@ function buildOverlayGeoJson(session: HideSeekSession): OverlayGeoJson {
     }
   }
 
+  return features;
+}
+
+function buildOverlayGeoJson(session: HideSeekSession): OverlayGeoJson {
+  const stations = api.gameState.getStations();
+  const stationMap = new Map(stations.map((s) => [s.id, s]));
+
+  if (session.phase === 'setup') {
+    const features = buildSetupFeatures(session, stationMap);
+    return { type: 'FeatureCollection', features } as unknown as OverlayGeoJson;
+  }
+
+  if (session.phase === 'reveal') {
+    const features = buildRevealFeatures(session, stationMap);
+    if (revealDeductionVisible) {
+      features.unshift(...buildQuestionDeductionFeatures(session, stationMap));
+    }
+    return { type: 'FeatureCollection', features } as unknown as OverlayGeoJson;
+  }
+
+  if (session.phase !== 'seeking') return EMPTY_FC;
+
+  const features = buildQuestionDeductionFeatures(session, stationMap);
   return { type: 'FeatureCollection', features } as unknown as OverlayGeoJson;
 }
 
@@ -334,6 +406,35 @@ function ensureLayers(map: MapLibreMap): void {
       'circle-stroke-color': '#ffffff',
     },
   });
+
+  addIfMissing(`${SOURCE_ID}-reveal-path-line`, {
+    id: `${SOURCE_ID}-reveal-path-line`,
+    type: 'line',
+    source: SOURCE_ID,
+    filter: ['==', ['get', 'kind'], 'reveal-path-line'],
+    paint: {
+      'line-color': ['coalesce', ['get', 'routeColor'], '#f59e0b'],
+      'line-width': 5,
+      'line-opacity': 0.92,
+    },
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+  });
+
+  addIfMissing(`${SOURCE_ID}-reveal-path-start`, {
+    id: `${SOURCE_ID}-reveal-path-start`,
+    type: 'circle',
+    source: SOURCE_ID,
+    filter: ['==', ['get', 'kind'], 'reveal-path-start'],
+    paint: {
+      'circle-radius': 8,
+      'circle-color': '#f97316',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+    },
+  });
 }
 
 export function initDeductionMapOverlay(map: MapLibreMap): void {
@@ -375,6 +476,8 @@ export function clearDeductionOverlay(): void {
   if (!map) return;
 
   lastRevealZoomKey = null;
+  revealPathVisible = true;
+  revealDeductionVisible = true;
   const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(EMPTY_FC);
 }

@@ -2,8 +2,8 @@
 
 import type { GameConfig } from './types';
 
-export const RADIUS_MIN_KM = 3;
-export const RADIUS_MAX_KM = 25;
+export const RADIUS_MIN_KM = 1;
+export const RADIUS_MAX_KM = 200;
 export const RADIUS_STEP_KM = 1;
 
 export const DURATION_MIN_HOURS = 0.5;

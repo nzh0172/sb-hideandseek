@@ -1,35 +1,33 @@
 /** Reveal phase: show bot location and validated path */
 
+import { useState } from 'react';
 import { getHideStationForReveal, newRound } from '../game/controller';
-import { getStationDisplayNameById } from '../game/displayNames';
 import { formatDuration } from '../game/geo';
+import {
+  isRevealDeductionVisible,
+  isRevealPathVisible,
+  setRevealDeductionVisible,
+  setRevealPathVisible,
+} from '../game/mapOverlay';
 import { formatValidatedPathText } from '../game/pathFormat';
 import { ForceText } from './ForceText';
 import { RoundStartInfo } from './RoundStartInfo';
+import { StationLabel } from './StationLabel';
 import { useSession } from './useSession';
 
-const api = window.SubwayBuilderAPI;
-const { Button, Badge } = api.utils.components as Record<string, React.ComponentType<any>>;
+const { Button, Badge, Label, Switch } = window.SubwayBuilderAPI.utils.components as Record<
+  string,
+  React.ComponentType<any>
+>;
 
 export function RevealPhase() {
   const session = useSession();
+  const [showPath, setShowPath] = useState(isRevealPathVisible);
+  const [showDeduction, setShowDeduction] = useState(isRevealDeductionVisible);
   const hideStation = getHideStationForReveal();
-  const startLabel = session.startStationId
-    ? getStationDisplayNameById(session.startStationId)
-    : null;
-
   const won = session.revealReason === 'correct';
-  const pathText = session.validatedPath
-    ? formatValidatedPathText(session.validatedPath)
-    : '';
-
-  const summaryText = startLabel
-    ? `From ${startLabel}${
-        session.validatedPath
-          ? ` · ${formatDuration(session.validatedPath.totalTimeSeconds)} travel`
-          : ''
-      }`
-    : '';
+  const path = session.validatedPath;
+  const pathText = path ? formatValidatedPathText(path) : '';
 
   return (
     <div className="flex flex-col gap-3">
@@ -58,17 +56,72 @@ export function RevealPhase() {
           as="div"
           style={{ fontSize: '11px', opacity: 0.75 }}
         />
-        <ForceText
-          text={hideStation?.name ?? 'Unknown'}
-          as="div"
-          style={{ fontSize: '18px', fontWeight: 600 }}
-        />
+        {hideStation ? (
+          <StationLabel
+            stationId={hideStation.id}
+            as="div"
+            style={{ fontSize: '18px', fontWeight: 600 }}
+            nameStyle={{ fontSize: '18px', fontWeight: 600 }}
+            bulletSize={20}
+          />
+        ) : (
+          <ForceText text="Unknown" as="div" style={{ fontSize: '18px', fontWeight: 600 }} />
+        )}
       </div>
 
       <RoundStartInfo session={session} />
 
-      {summaryText && (
-        <ForceText text={summaryText} as="div" style={{ fontSize: '13px', opacity: 0.75 }} />
+      {session.startStationId && path && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexWrap: 'wrap',
+            fontSize: '13px',
+            opacity: 0.85,
+          }}
+        >
+          <ForceText text="From" style={{ fontSize: '13px' }} />
+          <StationLabel
+            stationId={session.startStationId}
+            style={{ fontSize: '13px' }}
+            nameStyle={{ fontSize: '13px' }}
+            bulletSize={15}
+          />
+          <ForceText
+            text={`· ${formatDuration(path.totalTimeSeconds)} travel`}
+            style={{ fontSize: '13px' }}
+          />
+        </div>
+      )}
+
+      {session.mapOverlays.length > 0 && (
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="show-deduction-overlay">Show question regions on map</Label>
+          <Switch
+            id="show-deduction-overlay"
+            checked={showDeduction}
+            onCheckedChange={(checked: boolean) => {
+              setShowDeduction(checked);
+              setRevealDeductionVisible(checked);
+            }}
+          />
+        </div>
+      )}
+
+      {path && (
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="show-path-overlay">Show path on map</Label>
+          <Switch
+            id="show-path-overlay"
+            checked={showPath}
+            onCheckedChange={(checked: boolean) => {
+              setShowPath(checked);
+              setRevealPathVisible(checked);
+            }}
+          />
+        </div>
       )}
 
       {pathText && (
