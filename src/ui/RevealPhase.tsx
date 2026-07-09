@@ -8,6 +8,8 @@ import {
   isRevealPathVisible,
   setRevealDeductionVisible,
   setRevealPathVisible,
+  viewAnswerOnMap,
+  viewEntirePathOnMap,
   viewPlayAreaOnMap,
 } from '../game/mapOverlay';
 import { formatValidatedPathText } from '../game/pathFormat';
@@ -70,13 +72,9 @@ export function RevealPhase() {
         )}
       </div>
 
-      <RoundStartInfo session={session} />
+      {/* <RoundStartInfo session={session} /> */}
 
-      {session.startStationId && (
-        <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
-          <ForceText text="View play area" />
-        </Button>
-      )}
+
 
       {session.startStationId && path && (
         <div
@@ -99,6 +97,29 @@ export function RevealPhase() {
           <ForceText
             text={`· ${formatDuration(path.totalTimeSeconds)} travel`}
             style={{ fontSize: '13px' }}
+          />
+        </div>
+      )}
+
+
+
+      {pathText && (
+        <div className="flex flex-col gap-1 rounded border p-2">
+          <ForceText
+            text="Schedule-valid path"
+            as="div"
+            style={{ fontSize: '11px', fontWeight: 600 }}
+          />
+          <div
+            ref={(el) => {
+              if (el) el.textContent = pathText;
+            }}
+            style={{
+              fontSize: '11px',
+              lineHeight: 1.45,
+              whiteSpace: 'pre-wrap',
+              color: 'var(--foreground, #111827)',
+            }}
           />
         </div>
       )}
@@ -131,28 +152,26 @@ export function RevealPhase() {
         </div>
       )}
 
-      {pathText && (
-        <div className="flex flex-col gap-1 rounded border p-2">
-          <ForceText
-            text="Schedule-valid path"
-            as="div"
-            style={{ fontSize: '11px', fontWeight: 600 }}
-          />
-          <div
-            ref={(el) => {
-              if (el) el.textContent = pathText;
-            }}
-            style={{
-              fontSize: '11px',
-              lineHeight: 1.45,
-              whiteSpace: 'pre-wrap',
-              color: 'var(--foreground, #111827)',
-            }}
-          />
-        </div>
-      )}
 
-      <Button onClick={newRound}>New Round</Button>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: '4px' }}>
+        <Button onClick={newRound}>New Round</Button>
+        {path && (
+          <Button type="button" variant="secondary" onClick={() => viewEntirePathOnMap()}>
+            <ForceText text="View entire path" />
+          </Button>
+        )}
+        {hideStation && (
+          <Button type="button" variant="secondary" onClick={() => viewAnswerOnMap()}>
+            <ForceText text="View answer" />
+          </Button>
+        )}
+        {session.startStationId && (
+          <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
+            <ForceText text="View play area" />
+          </Button>
+        )}
+      </div>
+
     </div>
   );
 }

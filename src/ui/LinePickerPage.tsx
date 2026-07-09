@@ -1,17 +1,21 @@
 /** Line picker for seeking-phase line check questions */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   compareRouteLabels,
   getRouteBulletMeta,
   getRouteDisplayName,
 } from '../game/displayNames';
+import { setSeekingPickerRouteHighlight } from '../game/mapOverlay';
 import type { Route } from '../types/game-state';
 import { ForceText } from './ForceText';
 import { LineBullet } from './LineBullet';
 
 const api = window.SubwayBuilderAPI;
-const { Button, Input } = api.utils.components as Record<string, React.ComponentType<any>>;
+const { Button, Input, Label, Switch } = api.utils.components as Record<
+  string,
+  React.ComponentType<any>
+>;
 
 interface LinePickerPageProps {
   onPick: (routeId: string) => void;
@@ -21,19 +25,33 @@ interface LinePickerPageProps {
 function LineListItem({
   route,
   index,
+  selected,
   onPick,
+  onHighlight,
 }: {
   route: Route;
   index: number;
+  selected: boolean;
   onPick: () => void;
+  onHighlight: () => void;
 }) {
   const bullet = getRouteBulletMeta(route, index);
+  const hoverBg = 'rgba(128,128,128,0.08)';
+  const selectedBg = 'rgba(59,130,246,0.12)';
 
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={onPick}
+      onMouseEnter={(e) => {
+        if (!selected) e.currentTarget.style.background = hoverBg;
+        onHighlight();
+      }}
+      onMouseLeave={(e) => {
+        if (!selected) e.currentTarget.style.background = 'transparent';
+      }}
+      onFocus={onHighlight}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onPick();
       }}
@@ -45,7 +63,9 @@ function LineListItem({
         cursor: 'pointer',
         fontSize: '0.8125rem',
         lineHeight: 1.35,
+        fontWeight: selected ? 600 : 400,
         color: 'var(--foreground, #111827)',
+        background: selected ? selectedBg : 'transparent',
         borderBottom: '1px solid rgba(128,128,128,0.12)',
       }}
     >
@@ -57,6 +77,8 @@ function LineListItem({
 
 export function LinePickerPage({ onPick, onBack }: LinePickerPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [showLineHighlight, setShowLineHighlight] = useState(false);
+  const [highlightedRouteId, setHighlightedRouteId] = useState<string | null>(null);
   const routes = useMemo(
     () => [...api.gameState.getRoutes()].sort(compareRouteLabels),
     [],
@@ -74,6 +96,25 @@ export function LinePickerPage({ onPick, onBack }: LinePickerPageProps) {
     });
   }, [routes, searchQuery]);
 
+  useEffect(() => {
+    if (!showLineHighlight) {
+      setSeekingPickerRouteHighlight(null);
+    }
+  }, [showLineHighlight]);
+
+  useEffect(() => {
+    if (!showLineHighlight) return;
+    setSeekingPickerRouteHighlight(highlightedRouteId);
+  }, [showLineHighlight, highlightedRouteId]);
+
+  useEffect(() => {
+    if (!showLineHighlight || visibleRoutes.length === 0) return;
+
+    if (!highlightedRouteId || !visibleRoutes.some((route) => route.id === highlightedRouteId)) {
+      setHighlightedRouteId(visibleRoutes[0]!.id);
+    }
+  }, [showLineHighlight, highlightedRouteId, visibleRoutes]);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
@@ -90,6 +131,24 @@ export function LinePickerPage({ onPick, onBack }: LinePickerPageProps) {
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
         style={{ width: '100%' }}
       />
+
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="show-line-highlight">Highlight line on map</Label>
+          <Switch
+            id="show-line-highlight"
+            checked={showLineHighlight}
+            onCheckedChange={(checked: boolean) => {
+              setShowLineHighlight(checked);
+              if (!checked) setHighlightedRouteId(null);
+            }}
+          />
+        </div>
+        <ForceText
+          text="May affect performance on large networks."
+          style={{ fontSize: '11px', opacity: 0.65 }}
+        />
+      </div>
 
       {routes.length === 0 ? (
         <p className="text-sm text-muted-foreground">No routes built</p>
@@ -116,6 +175,10 @@ export function LinePickerPage({ onPick, onBack }: LinePickerPageProps) {
                 key={index}
                 route={route}
                 index={routeIndex >= 0 ? routeIndex : index}
+                selected={showLineHighlight && route.id === highlightedRouteId}
+                onHighlight={() => {
+                  if (showLineHighlight) setHighlightedRouteId(route.id);
+                }}
                 onPick={() => onPick(route.id)}
               />
             );

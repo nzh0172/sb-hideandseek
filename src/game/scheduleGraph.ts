@@ -180,6 +180,29 @@ function buildRouteStopInfo(route: Route): RouteStopInfo | null {
   return { route, stopStationIds, timingsByIndex, cycleSeconds };
 }
 
+let routeStopInfoCache: Map<string, RouteStopInfo | null> | null = null;
+let routeStopInfoCacheRevision = '';
+
+function routeStopInfoRevision(): string {
+  const routes = api.gameState.getRoutes();
+  return `${routes.length}:${api.gameState.getStations().length}:${routes.map((r) => r.id).join(',')}`;
+}
+
+function getRouteStopInfo(route: Route): RouteStopInfo | null {
+  const revision = routeStopInfoRevision();
+  if (!routeStopInfoCache || revision !== routeStopInfoCacheRevision) {
+    routeStopInfoCache = new Map();
+    routeStopInfoCacheRevision = revision;
+  }
+
+  const cached = routeStopInfoCache.get(route.id);
+  if (cached !== undefined) return cached;
+
+  const info = buildRouteStopInfo(route);
+  routeStopInfoCache.set(route.id, info);
+  return info;
+}
+
 function getRouteHeadwaySeconds(route: Route): number {
   const sched = route.trainSchedule;
   if (sched) {
@@ -503,20 +526,20 @@ function buildTransferIndex(
 
 export function getPlayableRoutes(): Route[] {
   return api.gameState.getRoutes().filter((route) => {
-    const info = buildRouteStopInfo(route);
+    const info = getRouteStopInfo(route);
     return info !== null;
   });
 }
 
 export function getPlayableRouteInfos(): RouteStopInfo[] {
   return getPlayableRoutes()
-    .map(buildRouteStopInfo)
+    .map(getRouteStopInfo)
     .filter((info): info is RouteStopInfo => info !== null);
 }
 
 /** Station IDs on a route in stop order (playable or partial routes). */
 export function getOrderedStationIdsForRoute(route: Route): string[] {
-  const info = buildRouteStopInfo(route);
+  const info = getRouteStopInfo(route);
   if (info) return info.stopStationIds;
 
   if ((route.stations?.length ?? 0) > 0) {
@@ -537,7 +560,7 @@ export function getRouteStationLineCoords(routeId: string): Coordinate[] {
   const route = api.gameState.getRoutes().find((r) => r.id === routeId);
   if (!route) return [];
 
-  const info = buildRouteStopInfo(route);
+  const info = getRouteStopInfo(route);
   if (!info) return [];
 
   const stationMap = new Map(api.gameState.getStations().map((s) => [s.id, s]));
@@ -570,7 +593,7 @@ export function getRouteSegmentCoords(
     return from && to ? [from, to] : [];
   }
 
-  const info = buildRouteStopInfo(route);
+  const info = getRouteStopInfo(route);
   if (!info) {
     const from = stationCoords(fromStationId);
     const to = stationCoords(toStationId);
@@ -683,7 +706,7 @@ export function findValidHideCandidates(
   const targetCanonical = new Set(candidateByCanonical.keys());
 
   const routeInfos = getPlayableRoutes()
-    .map(buildRouteStopInfo)
+    .map(getRouteStopInfo)
     .filter((info): info is RouteStopInfo => info !== null);
 
   if (routeInfos.length === 0) return [];
@@ -1023,7 +1046,7 @@ export function isStationOnRoute(stationId: string, routeId: string): boolean {
   if (!route) return false;
   const groups = buildStationGroups(api.gameState.getStations());
   const target = canonicalize(stationId, groups);
-  const info = buildRouteStopInfo(route);
+  const info = getRouteStopInfo(route);
   if (!info) return false;
   return info.stopStationIds.some((id) => canonicalize(id, groups) === target);
 }
@@ -1037,7 +1060,7 @@ export function isSameLineWithoutTransfer(
   const hideCanon = canonicalize(hideStationId, groups);
 
   for (const route of getPlayableRoutes()) {
-    const info = buildRouteStopInfo(route);
+    const info = getRouteStopInfo(route);
     if (!info) continue;
     const canonOnRoute = info.stopStationIds.map((id) => canonicalize(id, groups));
     if (canonOnRoute.includes(startCanon) && canonOnRoute.includes(hideCanon)) {
@@ -1047,7 +1070,7 @@ export function isSameLineWithoutTransfer(
 
   const stopsByLogicalLine = new Map<string, Set<string>>();
   for (const route of getPlayableRoutes()) {
-    const info = buildRouteStopInfo(route);
+    const info = getRouteStopInfo(route);
     if (!info) continue;
     const lineId = getLogicalLineId(route.id);
     let stops = stopsByLogicalLine.get(lineId);

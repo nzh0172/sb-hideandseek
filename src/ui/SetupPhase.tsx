@@ -21,10 +21,14 @@ import {
   getSortedStations,
   invalidateStationLabels,
 } from '../game/displayNames';
+import { invalidateValidRegionCache } from '../game/validRegion';
 import {
   centerMapOnStation,
   isSetupPlayAreaVisible,
+  isSetupStationLabelVisible,
   setSetupPlayAreaVisible,
+  setSetupStationLabelVisible,
+  refreshDeductionOverlay,
   viewPlayAreaOnMap,
 } from '../game/mapOverlay';
 import { getSession, setGameConfig, setStartStationId } from '../game/session';
@@ -60,28 +64,35 @@ export function SetupPhase() {
   const [stations, setStations] = useState(getSortedStations);
   const [canStart, setCanStart] = useState(() => canStartRound(session.config.mode));
   const [showPlayArea, setShowPlayArea] = useState(isSetupPlayAreaVisible);
+  const [showStationLabel, setShowStationLabel] = useState(isSetupStationLabelVisible);
   const [isStarting, setIsStarting] = useState(false);
 
   const { mode, hideRadiusKm, hideDurationHours } = session.config;
   const isLive = mode === 'live';
 
   useEffect(() => {
-    const refresh = () => {
+    const refreshNetwork = () => {
       invalidateStationLabels();
+      invalidateValidRegionCache();
       const sorted = [...api.gameState.getStations()].sort(compareStationLabels);
       setStations(sorted);
       setCanStart(canStartRound(getSession().config.mode));
       if (!getSession().startStationId && sorted[0]) {
         setStartStationId(sorted[0].id);
       }
+      refreshDeductionOverlay();
     };
-    refresh();
-    api.hooks.onStationBuilt(refresh);
-    api.hooks.onStationDeleted(refresh);
-    api.hooks.onRouteCreated(refresh);
-    api.hooks.onRouteDeleted(refresh);
-    api.hooks.onTrainSpawned(refresh);
-    api.hooks.onTrainDeleted(refresh);
+    const refreshTrains = () => {
+      setCanStart(canStartRound(getSession().config.mode));
+    };
+
+    refreshNetwork();
+    api.hooks.onStationBuilt(refreshNetwork);
+    api.hooks.onStationDeleted(refreshNetwork);
+    api.hooks.onRouteCreated(refreshNetwork);
+    api.hooks.onRouteDeleted(refreshNetwork);
+    api.hooks.onTrainSpawned(refreshTrains);
+    api.hooks.onTrainDeleted(refreshTrains);
   }, []);
 
   useEffect(() => {
@@ -191,18 +202,20 @@ export function SetupPhase() {
         />
       </div>
 
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={!selectedId}
-        onClick={() => {
-          setShowPlayArea(true);
-          setSetupPlayAreaVisible(true);
-          viewPlayAreaOnMap();
-        }}
-      >
-        <ForceText text="View play area" />
-      </Button>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="show-station-label">Show selected station on map</Label>
+        <Switch
+          id="show-station-label"
+          checked={showStationLabel}
+          disabled={!selectedId}
+          onCheckedChange={(checked: boolean) => {
+            setShowStationLabel(checked);
+            setSetupStationLabelVisible(checked);
+          }}
+        />
+      </div>
+
+
 
       <div className="flex flex-col gap-1">
         <StationPickerPage
@@ -223,13 +236,26 @@ export function SetupPhase() {
         </p>
       )}
 
-      <div style={{ marginTop: '4px' }}>
+      <div className="flex gap-2" style={{ marginTop: '4px' }}>
         <Button
           disabled={!canStart || !selectedId || stations.length === 0 || isStarting}
           onClick={handleStartRound}
         >
           Start Round
         </Button>
+
+        <Button
+        type="button"
+        variant="secondary"
+        disabled={!selectedId}
+        onClick={() => {
+          setShowPlayArea(true);
+          setSetupPlayAreaVisible(true);
+          viewPlayAreaOnMap();
+        }}
+      >
+        <ForceText text="View play area" />
+      </Button>
       </div>
     </div>
   );

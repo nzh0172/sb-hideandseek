@@ -13,24 +13,41 @@ import {
 type Listener = () => void;
 
 let session = createInitialSession();
-const listeners = new Set<Listener>();
+const uiListeners = new Set<Listener>();
+const overlayListeners = new Set<Listener>();
 
 export function getSession(): HideSeekSession {
   return session;
 }
 
+/** React UI updates — fires on any session change. */
 export function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  uiListeners.add(listener);
+  return () => uiListeners.delete(listener);
 }
 
-function notify(): void {
-  listeners.forEach((l) => l());
+/** Map overlay updates — skips query log and guess-count-only changes. */
+export function subscribeOverlay(listener: Listener): () => void {
+  overlayListeners.add(listener);
+  return () => overlayListeners.delete(listener);
+}
+
+function notifyUI(): void {
+  uiListeners.forEach((l) => l());
+}
+
+function notifyOverlay(): void {
+  overlayListeners.forEach((l) => l());
+}
+
+function notifyAll(): void {
+  notifyUI();
+  notifyOverlay();
 }
 
 export function resetSession(): void {
   session = createInitialSession();
-  notify();
+  notifyAll();
 }
 
 /** Reset round state for setup, optionally carrying over the next starting station. */
@@ -41,7 +58,7 @@ export function resetForNewRound(nextStartStationId: string | null): void {
     startStationId: nextStartStationId,
     config: { ...config },
   };
-  notify();
+  notifyAll();
 }
 
 export function setDeductionState(data: {
@@ -53,22 +70,22 @@ export function setDeductionState(data: {
     possibleStationIds: data.possibleStationIds,
     mapOverlays: data.mapOverlays,
   };
-  notify();
+  notifyAll();
 }
 
 export function setStartStationId(stationId: string | null): void {
   session = { ...session, startStationId: stationId };
-  notify();
+  notifyAll();
 }
 
 export function setGameConfig(config: GameConfig): void {
   session = { ...session, config: { ...config } };
-  notify();
+  notifyAll();
 }
 
 export function transitionTo(phase: GamePhase): void {
   session = { ...session, phase };
-  notify();
+  notifyAll();
 }
 
 export function setRoundData(data: {
@@ -94,7 +111,7 @@ export function setRoundData(data: {
     revealReason: null,
     phase: data.phase,
   };
-  notify();
+  notifyAll();
 }
 
 export function addQueryLog(entry: Omit<QueryLogEntry, 'id' | 'timestamp'>): void {
@@ -104,15 +121,15 @@ export function addQueryLog(entry: Omit<QueryLogEntry, 'id' | 'timestamp'>): voi
     timestamp: Date.now(),
   };
   session = { ...session, queryLog: [...session.queryLog, logEntry] };
-  notify();
+  notifyUI();
 }
 
 export function incrementGuessCount(): void {
   session = { ...session, guessCount: session.guessCount + 1 };
-  notify();
+  notifyUI();
 }
 
 export function reveal(reason: 'correct' | 'giveUp'): void {
   session = { ...session, phase: 'reveal', revealReason: reason };
-  notify();
+  notifyAll();
 }

@@ -19,7 +19,10 @@ import { QuestionLog } from './QuestionLog';
 import { RoundStartInfo } from './RoundStartInfo';
 import { StationLabel } from './StationLabel';
 import { StationPickerPage } from './StationPickerPage';
-import { viewPlayAreaOnMap } from '../game/mapOverlay';
+import {
+  clearSeekingPickerHighlight,
+  viewPlayAreaOnMap,
+} from '../game/mapOverlay';
 import { useSession } from './useSession';
 
 const { Button, Label } = window.SubwayBuilderAPI.utils.components as Record<
@@ -56,7 +59,11 @@ export function SeekingPhase() {
         title="Reference station"
         pinnedStationId={startStationId ?? undefined}
         pinnedLabel="Starting station"
-        onBack={() => setPickerTarget(null)}
+        highlightOnMap
+        onBack={() => {
+          clearSeekingPickerHighlight();
+          setPickerTarget(null);
+        }}
       />
     );
   }
@@ -68,7 +75,11 @@ export function SeekingPhase() {
         stations={stations}
         onChange={setGuessId}
         title="Guess station"
-        onBack={() => setPickerTarget(null)}
+        highlightOnMap
+        onBack={() => {
+          clearSeekingPickerHighlight();
+          setPickerTarget(null);
+        }}
       />
     );
   }
@@ -78,9 +89,13 @@ export function SeekingPhase() {
       <LinePickerPage
         onPick={(routeId) => {
           queryOnLine(routeId);
+          clearSeekingPickerHighlight();
           setPickerTarget(null);
         }}
-        onBack={() => setPickerTarget(null)}
+        onBack={() => {
+          clearSeekingPickerHighlight();
+          setPickerTarget(null);
+        }}
       />
     );
   }
@@ -88,12 +103,6 @@ export function SeekingPhase() {
   return (
     <div className="flex flex-col gap-3">
       <RoundStartInfo session={session} />
-
-      {session.startStationId && (
-        <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
-          <ForceText text="View play area" />
-        </Button>
-      )}
 
       <p className="text-sm" style={{ opacity: 0.75 }}>
         Ask questions to narrow down the hider. Wrong guesses: {session.guessCount}
@@ -231,6 +240,11 @@ export function SeekingPhase() {
         <div className="flex gap-2">
           <Button onClick={() => guessStation(guessId)}>Submit Guess</Button>
           <Button variant="destructive" onClick={giveUp}>Give Up</Button>
+          {session.startStationId && (
+          <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
+            <ForceText text="View play area" />
+          </Button>
+          )}
         </div>
       </div>
     </div>

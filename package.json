@@ -28,7 +28,12 @@
     "vite-plugin-static-copy": "^3.0.0"
   },
   "dependencies": {
-    "@turf/mask": "^7.3.5",
-    "@turf/turf": "^7.3.5"
+    "@turf/bbox": "^7.3.5",
+    "@turf/bbox-polygon": "^7.3.5",
+    "@turf/buffer": "^7.3.5",
+    "@turf/difference": "^7.3.5",
+    "@turf/helpers": "^7.3.5",
+    "@turf/intersect": "^7.3.5",
+    "@turf/union": "^7.3.5"
   }
 }

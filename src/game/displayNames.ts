@@ -212,14 +212,22 @@ export function getRouteDisplayName(route: Route, index?: number): string {
 }
 
 export function compareStationLabels(a: Station, b: Station): number {
-  return getStationDisplayName(a).localeCompare(getStationDisplayName(b));
+  return getStationDisplayName(a).localeCompare(
+    getStationDisplayName(b),
+    undefined,
+    { numeric: true, sensitivity: 'base' },
+  );
 }
 
 export function compareRouteLabels(a: Route, b: Route): number {
-  return getRouteDisplayName(a).localeCompare(getRouteDisplayName(b));
+  return getRouteDisplayName(a).localeCompare(
+    getRouteDisplayName(b),
+    undefined,
+    { numeric: true, sensitivity: 'base' },
+  );
 }
 
 export function getSortedStations(): Station[] {
-  invalidateStationLabels();
+  if (!stationLabelCache) rebuildStationLabelCache();
   return [...window.SubwayBuilderAPI.gameState.getStations()].sort(compareStationLabels);
 }

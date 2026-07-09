@@ -4,15 +4,19 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   buildStationCatalog,
   findRouteIdForStation,
+  OTHER_ROUTE_ID,
   searchStations,
 } from '../game/stationCatalog';
 import {
   areSameStationGroup,
   getGroupRepresentative,
   getRouteBulletMeta,
-  invalidateStationLabels,
 } from '../game/displayNames';
-import { OTHER_ROUTE_ID } from '../game/stationCatalog';
+import {
+  centerMapOnStation,
+  setSeekingPickerRouteHighlight,
+  setSeekingPickerStationHighlight,
+} from '../game/mapOverlay';
 import type { Station } from '../types/game-state';
 import { ForceText } from './ForceText';
 import { LineBullet } from './LineBullet';
@@ -30,6 +34,8 @@ interface StationPickerPageProps {
   /** Pinned quick-pick row shown above the route station list. */
   pinnedStationId?: string;
   pinnedLabel?: string;
+  /** Highlight the selected station on the game map. */
+  highlightOnMap?: boolean;
 }
 
 function RouteListItem({
@@ -54,12 +60,20 @@ function RouteListItem({
     routeId !== OTHER_ROUTE_ID && route
       ? getRouteBulletMeta(route, routeIndex)
       : null;
+  const hoverBg = 'rgba(128,128,128,0.08)';
+  const selectedBg = 'rgba(128,128,128,0.15)';
 
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={onPick}
+      onMouseEnter={(e) => {
+        if (!selected) e.currentTarget.style.background = hoverBg;
+      }}
+      onMouseLeave={(e) => {
+        if (!selected) e.currentTarget.style.background = 'transparent';
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onPick();
       }}
@@ -73,7 +87,7 @@ function RouteListItem({
         lineHeight: 1.35,
         fontWeight: selected ? 600 : 400,
         color: 'var(--foreground, #111827)',
-        background: selected ? 'rgba(128,128,128,0.15)' : 'transparent',
+        background: selected ? selectedBg : 'transparent',
         borderBottom: '1px solid rgba(128,128,128,0.12)',
       }}
     >
@@ -113,14 +127,13 @@ export function StationPickerPage({
   onBack,
   pinnedStationId,
   pinnedLabel = 'Starting station',
+  highlightOnMap = false,
 }: StationPickerPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogVersion, setCatalogVersion] = useState(0);
+  const [hoveredStationId, setHoveredStationId] = useState<string | null>(null);
 
-  const catalog = useMemo(() => {
-    invalidateStationLabels();
-    return buildStationCatalog(stations);
-  }, [stations, catalogVersion]);
+  const catalog = useMemo(() => buildStationCatalog(stations), [stations, catalogVersion]);
 
   const [selectedRouteId, setSelectedRouteId] = useState(() =>
     findRouteIdForStation(catalog, value),
@@ -141,6 +154,28 @@ export function StationPickerPage({
   }, []);
 
   const searching = searchQuery.trim().length > 0;
+
+  useEffect(() => {
+    if (!highlightOnMap) return;
+
+    setSeekingPickerRouteHighlight(null);
+
+    const stationId = hoveredStationId
+      ? getGroupRepresentative(hoveredStationId)
+      : value;
+
+    if (stationId) {
+      setSeekingPickerStationHighlight(stationId);
+    } else {
+      setSeekingPickerStationHighlight(null);
+    }
+  }, [highlightOnMap, hoveredStationId, value]);
+
+  useEffect(() => {
+    if (!highlightOnMap || !value) return;
+    centerMapOnStation(value);
+  }, [highlightOnMap, value]);
+
   const searchResults = useMemo(
     () => (searching ? searchStations(stations, searchQuery) : []),
     [stations, searchQuery, searching],
@@ -160,7 +195,16 @@ export function StationPickerPage({
   const pickStation = (stationId: string) => {
     onChange(getGroupRepresentative(stationId));
     setSearchQuery('');
+    setHoveredStationId(null);
   };
+
+  const stationHoverHandlers = highlightOnMap
+    ? {
+        onHover: (stationId: string) =>
+          setHoveredStationId(getGroupRepresentative(stationId)),
+        onHoverEnd: () => setHoveredStationId(null),
+      }
+    : {};
 
   return (
     <div className="flex flex-col gap-2">
@@ -256,6 +300,8 @@ export function StationPickerPage({
                   stationId={pinnedStationId}
                   selected={areSameStationGroup(pinnedStationId, value)}
                   onPick={() => pickStation(pinnedStationId)}
+                  onHover={() => stationHoverHandlers.onHover?.(pinnedStationId)}
+                  onHoverEnd={stationHoverHandlers.onHoverEnd}
                 />
               </div>
             )}
@@ -278,6 +324,8 @@ export function StationPickerPage({
                 stationId={station.id}
                 selected={areSameStationGroup(station.id, value)}
                 onPick={() => pickStation(station.id)}
+                onHover={() => stationHoverHandlers.onHover?.(station.id)}
+                onHoverEnd={stationHoverHandlers.onHoverEnd}
               />
             ))}
           </div>

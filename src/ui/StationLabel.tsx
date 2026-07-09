@@ -56,16 +56,33 @@ export function StationListItem({
   stationId,
   selected,
   onPick,
+  onHover,
+  onHoverEnd,
 }: {
   stationId: string;
   selected: boolean;
   onPick: () => void;
+  onHover?: () => void;
+  onHoverEnd?: () => void;
 }) {
+  const hoverBg = 'rgba(128,128,128,0.08)';
+  const selectedBg = 'rgba(128,128,128,0.15)';
+
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={onPick}
+      onMouseEnter={(e) => {
+        if (!selected) e.currentTarget.style.background = hoverBg;
+        onHover?.();
+      }}
+      onMouseLeave={(e) => {
+        if (!selected) e.currentTarget.style.background = 'transparent';
+        onHoverEnd?.();
+      }}
+      onFocus={() => onHover?.()}
+      onBlur={() => onHoverEnd?.()}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onPick();
       }}
@@ -78,7 +95,7 @@ export function StationListItem({
         lineHeight: 1.35,
         fontWeight: selected ? 600 : 400,
         color: 'var(--foreground, #111827)',
-        background: selected ? 'rgba(128,128,128,0.15)' : 'transparent',
+        background: selected ? selectedBg : 'transparent',
         borderBottom: '1px solid rgba(128,128,128,0.12)',
       }}
     >

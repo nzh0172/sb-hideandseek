@@ -2,12 +2,15 @@
 
 import { getRouteIdsForStationGroup } from './displayNames';
 import { haversineKm, isCardinalDirectionOf } from './geo';
-import { refreshDeductionOverlay } from './mapOverlay';
 import { isSameLineWithoutTransfer, isStationOnRoute } from './scheduleGraph';
 import { getSession, setDeductionState } from './session';
 import type { CardinalDirection, MapOverlay } from './types';
 
 const api = window.SubwayBuilderAPI;
+
+function stationMap(): Map<string, ReturnType<typeof api.gameState.getStations>[number]> {
+  return new Map(api.gameState.getStations().map((s) => [s.id, s]));
+}
 
 function overlayId(prefix: string): string {
   return `${prefix}-${Date.now()}`;
@@ -29,7 +32,6 @@ function applyDeductionUpdate(
     possibleStationIds,
     mapOverlays: mergeOverlays(session.mapOverlays, newOverlays),
   });
-  refreshDeductionOverlay();
 }
 
 export function applyDistanceFromStation(
@@ -38,11 +40,12 @@ export function applyDistanceFromStation(
   within: boolean,
 ): void {
   const session = getSession();
-  const ref = api.gameState.getStations().find((s) => s.id === refStationId);
+  const stations = stationMap();
+  const ref = stations.get(refStationId);
   if (!ref) return;
 
   const filtered = session.possibleStationIds.filter((id) => {
-    const station = api.gameState.getStations().find((s) => s.id === id);
+    const station = stations.get(id);
     if (!station) return false;
     const dist = haversineKm(ref.coords, station.coords);
     return within ? dist <= radiusKm : dist > radiusKm;
@@ -66,11 +69,12 @@ export function applyCardinalDirection(
   onSide: boolean,
 ): void {
   const session = getSession();
-  const ref = api.gameState.getStations().find((s) => s.id === refStationId);
+  const stations = stationMap();
+  const ref = stations.get(refStationId);
   if (!ref) return;
 
   const filtered = session.possibleStationIds.filter((id) => {
-    const station = api.gameState.getStations().find((s) => s.id === id);
+    const station = stations.get(id);
     if (!station) return false;
     const matches = isCardinalDirectionOf(station.coords, ref.coords, direction);
     return onSide ? matches : !matches;

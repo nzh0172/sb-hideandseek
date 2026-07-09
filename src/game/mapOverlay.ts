@@ -1,13 +1,20 @@
 /** Subtractive map overlay — dark outside, bright inside intersecting valid region */
 
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
+import {
+  getRouteBulletMeta,
+  getRouteBulletsForStationGroup,
+  getStationBaseName,
+  type RouteBulletMeta,
+} from './displayNames';
+import { getRouteStationLineCoords } from './scheduleGraph';
 import { circlePolygonRing } from './geo';
 import {
   buildRevealPathMapFeatures,
   type RevealPathBulletFeature,
 } from './revealPathMap';
-import { getSession, subscribe } from './session';
-import { buildSubtractiveMask, playAreaRegion, validRegionOutlineRings } from './validRegion';
+import { getSession, subscribeOverlay } from './session';
+import { buildDeductionMaskAndOutlines, playAreaRegion } from './validRegion';
 import type { HideSeekSession } from './types';
 
 const api = window.SubwayBuilderAPI;
@@ -31,16 +38,53 @@ type OverlayGeoJson = Parameters<GeoJSONSource['setData']>[0];
 
 const EMPTY_FC = { type: 'FeatureCollection', features: [] } as OverlayGeoJson;
 
+const DOM_OVERLAY_ATTR = 'data-hide-seek-dom';
+
+type DomOverlayKind = 'path-bullet' | 'setup-station-label' | 'seeking-picker-station-label';
+
+function tagDomOverlay(element: HTMLElement, kind: DomOverlayKind): void {
+  element.setAttribute(DOM_OVERLAY_ATTR, kind);
+}
+
+function clearDomOverlays(kind?: DomOverlayKind): void {
+  const map = mapRef ?? api.utils.getMap();
+  const container = map?.getContainer();
+  if (container) {
+    const selector = kind
+      ? `[${DOM_OVERLAY_ATTR}="${kind}"]`
+      : `[${DOM_OVERLAY_ATTR}]`;
+    container.querySelectorAll(selector).forEach((node) => node.remove());
+  }
+
+  if (!kind || kind === 'path-bullet') pathBulletMarkers = [];
+  if (!kind || kind === 'setup-station-label') setupStationLabelMarker = null;
+  if (!kind || kind === 'seeking-picker-station-label') seekingPickerStationLabelMarker = null;
+}
+
 /** Highlight radius around the revealed hide station. */
 const REVEAL_HIGHLIGHT_RADIUS_KM = 0.5;
 
 let mapRef: MapLibreMap | null = null;
 let lastRevealZoomKey: string | null = null;
 let setupPlayAreaVisible = true;
+let setupStationLabelVisible = true;
 let revealPathVisible = true;
 let revealDeductionVisible = true;
 let pathBulletMarkers: Array<{ element: HTMLElement; coordinates: [number, number] }> = [];
-let bulletMapListenersAttached = false;
+let setupStationLabelMarker: {
+  element: HTMLElement;
+  coordinates: [number, number];
+} | null = null;
+let seekingPickerStationLabelMarker: {
+  element: HTMLElement;
+  coordinates: [number, number];
+} | null = null;
+let seekingPickerStationId: string | null = null;
+let seekingPickerRouteId: string | null = null;
+let domOverlayListenersAttached = false;
+let layersReady = false;
+let lastSyncedSetupStationId: string | null = null;
+let lastSyncedPickerStationId: string | null = null;
 
 function isValidCoordinate(coord: [number, number]): boolean {
   return Number.isFinite(coord[0]) && Number.isFinite(coord[1]);
@@ -52,25 +96,217 @@ function normalizeLineColor(color: string | undefined): string {
 }
 
 function clearPathBulletMarkers(): void {
-  for (const marker of pathBulletMarkers) marker.element.remove();
-  pathBulletMarkers = [];
+  clearDomOverlays('path-bullet');
 }
 
-function updatePathBulletPositions(map: MapLibreMap): void {
+function clearSetupStationLabel(): void {
+  clearDomOverlays('setup-station-label');
+}
+
+function clearSeekingPickerStationLabel(): void {
+  clearDomOverlays('seeking-picker-station-label');
+}
+
+function updateDomOverlayPositions(map: MapLibreMap): void {
   for (const marker of pathBulletMarkers) {
     const point = map.project(marker.coordinates);
     marker.element.style.left = `${point.x}px`;
     marker.element.style.top = `${point.y}px`;
   }
+
+  if (setupStationLabelMarker) {
+    const point = map.project(setupStationLabelMarker.coordinates);
+    setupStationLabelMarker.element.style.left = `${point.x}px`;
+    setupStationLabelMarker.element.style.top = `${point.y}px`;
+  }
+
+  if (seekingPickerStationLabelMarker) {
+    const point = map.project(seekingPickerStationLabelMarker.coordinates);
+    seekingPickerStationLabelMarker.element.style.left = `${point.x}px`;
+    seekingPickerStationLabelMarker.element.style.top = `${point.y}px`;
+  }
 }
 
-function attachBulletMapListeners(map: MapLibreMap): void {
-  if (bulletMapListenersAttached) return;
-  bulletMapListenersAttached = true;
-  const update = () => updatePathBulletPositions(map);
+function attachDomOverlayListeners(map: MapLibreMap): void {
+  if (domOverlayListenersAttached) return;
+  domOverlayListenersAttached = true;
+  const update = () => updateDomOverlayPositions(map);
   map.on('move', update);
   map.on('zoom', update);
   map.on('resize', update);
+}
+
+function isLongBulletLabel(label: string): boolean {
+  return label.trim().length > 2;
+}
+
+function bulletHorizontalPadding(label: string, size: number, long: boolean): number {
+  if (!long) return 0;
+  return Math.max(6, Math.min(14, Math.round(label.length * 2.2)), Math.round(size * 0.35));
+}
+
+function createRouteBulletElement(bullet: RouteBulletMeta, size = 18): HTMLElement {
+  const el = document.createElement('span');
+  el.textContent = bullet.label;
+  const long = isLongBulletLabel(bullet.label);
+  const padX = bulletHorizontalPadding(bullet.label, size, long);
+  const fontSize = Math.max(9, Math.round(size * 0.55));
+  const minWidth = long ? Math.max(size, size + padX * 2) : size;
+
+  el.style.cssText = [
+    'display:inline-flex',
+    'align-items:center',
+    'justify-content:center',
+    `min-width:${minWidth}px`,
+    long ? '' : `width:${size}px`,
+    `height:${size}px`,
+    `padding:0 ${long ? padX : 0}px`,
+    'border-radius:999px',
+    `background:${bullet.color}`,
+    `color:${bullet.textColor}`,
+    'font-weight:700',
+    `font-size:${fontSize}px`,
+    'line-height:1',
+    'box-sizing:border-box',
+    'flex-shrink:0',
+    'white-space:nowrap',
+  ]
+    .filter(Boolean)
+    .join(';');
+  return el;
+}
+
+function createStationLabelElement(stationId: string, accentColor: string): HTMLElement {
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = [
+    'display:inline-flex',
+    'align-items:center',
+    'gap:6px',
+    'flex-wrap:wrap',
+    'width:max-content',
+    'max-width:320px',
+    'padding:5px 9px',
+    'border-radius:8px',
+    'background:#ffffff',
+    'color:#111827',
+    `border:2px solid ${accentColor}`,
+    'box-shadow:0 2px 8px rgba(0,0,0,0.28)',
+    'font-family:system-ui,sans-serif',
+    'box-sizing:border-box',
+  ].join(';');
+
+  const name = document.createElement('span');
+  name.textContent = getStationBaseName(stationId);
+  name.style.cssText = 'font-weight:600;font-size:12px;line-height:1.2;flex-shrink:0;white-space:nowrap;';
+
+  const bullets = document.createElement('span');
+  bullets.style.cssText =
+    'display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;flex:1 1 auto;min-width:0;';
+  for (const bullet of getRouteBulletsForStationGroup(stationId)) {
+    bullets.appendChild(createRouteBulletElement(bullet, 16));
+  }
+
+  wrapper.appendChild(name);
+  wrapper.appendChild(bullets);
+  return wrapper;
+}
+
+function createSetupStationLabelElement(stationId: string): HTMLElement {
+  const wrapper = createStationLabelElement(stationId, '#f97316');
+  tagDomOverlay(wrapper, 'setup-station-label');
+  return wrapper;
+}
+
+function createSeekingPickerStationLabelElement(stationId: string): HTMLElement {
+  const wrapper = createStationLabelElement(stationId, '#3b82f6');
+  tagDomOverlay(wrapper, 'seeking-picker-station-label');
+  return wrapper;
+}
+
+function syncSetupStationLabel(session: HideSeekSession): void {
+  const nextId =
+    session.phase === 'setup' &&
+    setupStationLabelVisible &&
+    session.startStationId
+      ? session.startStationId
+      : null;
+
+  if (nextId === lastSyncedSetupStationId && setupStationLabelMarker) {
+    const map = mapRef ?? api.utils.getMap();
+    if (map) updateDomOverlayPositions(map);
+    return;
+  }
+
+  lastSyncedSetupStationId = nextId;
+  clearSetupStationLabel();
+
+  const map = mapRef ?? api.utils.getMap();
+  if (
+    !map ||
+    session.phase !== 'setup' ||
+    !setupStationLabelVisible ||
+    !session.startStationId
+  ) {
+    return;
+  }
+
+  const station = api.gameState
+    .getStations()
+    .find((s) => s.id === session.startStationId);
+  if (!station || !isValidCoordinate(station.coords)) return;
+
+  attachDomOverlayListeners(map);
+  const container = map.getContainer();
+  container.style.position ||= 'relative';
+
+  const element = createSetupStationLabelElement(session.startStationId);
+  element.style.position = 'absolute';
+  element.style.transform = 'translate(-50%, calc(-100% - 14px))';
+  element.style.zIndex = '6';
+  element.style.pointerEvents = 'none';
+  container.appendChild(element);
+  setupStationLabelMarker = { element, coordinates: station.coords };
+  updateDomOverlayPositions(map);
+}
+
+function syncSeekingPickerStationLabel(): void {
+  const session = getSession();
+  const nextId =
+    session.phase === 'seeking' && seekingPickerStationId
+      ? seekingPickerStationId
+      : null;
+
+  if (nextId === lastSyncedPickerStationId && seekingPickerStationLabelMarker) {
+    const map = mapRef ?? api.utils.getMap();
+    if (map) updateDomOverlayPositions(map);
+    return;
+  }
+
+  lastSyncedPickerStationId = nextId;
+  clearSeekingPickerStationLabel();
+
+  const map = mapRef ?? api.utils.getMap();
+  if (!map || !nextId) {
+    return;
+  }
+
+  const station = api.gameState
+    .getStations()
+    .find((s) => s.id === nextId);
+  if (!station || !isValidCoordinate(station.coords)) return;
+
+  attachDomOverlayListeners(map);
+  const container = map.getContainer();
+  container.style.position ||= 'relative';
+
+  const element = createSeekingPickerStationLabelElement(nextId);
+  element.style.position = 'absolute';
+  element.style.transform = 'translate(-50%, calc(-100% - 14px))';
+  element.style.zIndex = '6';
+  element.style.pointerEvents = 'none';
+  container.appendChild(element);
+  seekingPickerStationLabelMarker = { element, coordinates: station.coords };
+  updateDomOverlayPositions(map);
 }
 
 function createPathBulletElement(bullet: RevealPathBulletFeature): HTMLElement {
@@ -95,6 +331,7 @@ function createPathBulletElement(bullet: RevealPathBulletFeature): HTMLElement {
     'pointer-events:none',
     'white-space:nowrap',
   ].join(';');
+  tagDomOverlay(el, 'path-bullet');
   return el;
 }
 
@@ -111,7 +348,7 @@ function syncPathBulletMarkers(session: HideSeekSession): void {
     return;
   }
 
-  attachBulletMapListeners(map);
+  attachDomOverlayListeners(map);
   const container = map.getContainer();
   container.style.position ||= 'relative';
 
@@ -127,7 +364,7 @@ function syncPathBulletMarkers(session: HideSeekSession): void {
     pathBulletMarkers.push({ element, coordinates: bullet.coordinates });
   }
 
-  updatePathBulletPositions(map);
+  updateDomOverlayPositions(map);
 }
 
 export function isRevealPathVisible(): boolean {
@@ -154,6 +391,34 @@ export function isSetupPlayAreaVisible(): boolean {
 
 export function setSetupPlayAreaVisible(visible: boolean): void {
   setupPlayAreaVisible = visible;
+  refreshDeductionOverlay();
+}
+
+export function isSetupStationLabelVisible(): boolean {
+  return setupStationLabelVisible;
+}
+
+export function setSetupStationLabelVisible(visible: boolean): void {
+  setupStationLabelVisible = visible;
+  refreshDeductionOverlay();
+}
+
+export function setSeekingPickerStationHighlight(stationId: string | null): void {
+  if (seekingPickerStationId === stationId) return;
+  seekingPickerStationId = stationId;
+  refreshDeductionOverlay();
+}
+
+export function setSeekingPickerRouteHighlight(routeId: string | null): void {
+  if (seekingPickerRouteId === routeId) return;
+  seekingPickerRouteId = routeId;
+  refreshDeductionOverlay();
+}
+
+export function clearSeekingPickerHighlight(): void {
+  if (seekingPickerStationId === null && seekingPickerRouteId === null) return;
+  seekingPickerStationId = null;
+  seekingPickerRouteId = null;
   refreshDeductionOverlay();
 }
 
@@ -199,6 +464,8 @@ function buildSetupFeatures(
   }
 
   if (!session.startStationId) return features;
+
+  if (!setupStationLabelVisible) return features;
 
   const start = stationMap.get(session.startStationId);
   if (!start) return features;
@@ -344,10 +611,57 @@ export function viewPlayAreaOnMap(): void {
   fitBoundsToRing(ring, { padding: 72, maxZoom: 14 });
 }
 
-export function centerMapOnStation(stationId: string): void {
+/** Pan/zoom to the revealed hide station. */
+export function viewAnswerOnMap(): void {
   const session = getSession();
-  if (session.phase !== 'setup') return;
+  if (!session.hideStationId) return;
 
+  const hideStation = api.gameState.getStations().find((s) => s.id === session.hideStationId);
+  if (!hideStation) return;
+
+  zoomToRevealStation(hideStation.coords);
+}
+
+/** Fit the map to the full revealed travel path (start → hide station). */
+export function viewEntirePathOnMap(): void {
+  const session = getSession();
+  const legs = session.validatedPath?.legs;
+  if (!legs?.length) return;
+
+  const coords: [number, number][] = [];
+  const { lines, visitedStationIds } = buildRevealPathMapFeatures(legs);
+
+  for (const line of lines) {
+    for (const point of line.coordinates) {
+      if (isValidCoordinate(point)) coords.push(point);
+    }
+  }
+
+  const stationMap = new Map(
+    api.gameState.getStations().map((s) => [s.id, s]),
+  );
+  for (const stationId of visitedStationIds) {
+    const station = stationMap.get(stationId);
+    if (station && isValidCoordinate(station.coords)) {
+      coords.push(station.coords);
+    }
+  }
+
+  if (session.startStationId) {
+    const start = stationMap.get(session.startStationId);
+    if (start && isValidCoordinate(start.coords)) coords.push(start.coords);
+  }
+  if (session.hideStationId) {
+    const hide = stationMap.get(session.hideStationId);
+    if (hide && isValidCoordinate(hide.coords)) coords.push(hide.coords);
+  }
+
+  if (coords.length === 0) return;
+
+  fitBoundsToRing(coords, { padding: 72, maxZoom: 14 });
+}
+
+export function centerMapOnStation(stationId: string): void {
   const station = api.gameState.getStations().find((s) => s.id === stationId);
   if (!station) return;
 
@@ -360,6 +674,46 @@ export function centerMapOnStation(stationId: string): void {
   });
 }
 
+function buildSeekingPickerFeatures(
+  stationMap: Map<string, { coords: [number, number] }>,
+): Array<Record<string, unknown>> {
+  const features: Array<Record<string, unknown>> = [];
+
+  if (seekingPickerStationId) {
+    const station = stationMap.get(seekingPickerStationId);
+    if (station) {
+      features.push({
+        type: 'Feature',
+        properties: { kind: 'picker-station' },
+        geometry: { type: 'Point', coordinates: station.coords },
+      });
+    }
+  }
+
+  if (seekingPickerRouteId) {
+    const coords = getRouteStationLineCoords(seekingPickerRouteId).filter(isValidCoordinate);
+    if (coords.length >= 2) {
+      const routes = api.gameState.getRoutes();
+      const routeIndex = routes.findIndex((r) => r.id === seekingPickerRouteId);
+      const route = routeIndex >= 0 ? routes[routeIndex] : undefined;
+      const routeColor = route
+        ? normalizeLineColor(getRouteBulletMeta(route, routeIndex).color)
+        : '#3b82f6';
+
+      features.push({
+        type: 'Feature',
+        properties: {
+          kind: 'picker-route-line',
+          routeColor,
+        },
+        geometry: { type: 'LineString', coordinates: coords },
+      });
+    }
+  }
+
+  return features;
+}
+
 function buildQuestionDeductionFeatures(
   session: HideSeekSession,
   stationMap: Map<string, { coords: [number, number] }>,
@@ -369,7 +723,10 @@ function buildQuestionDeductionFeatures(
 
   features.push(...buildPlayAreaFeatures(session, stationMap));
 
-  const darkMask = buildSubtractiveMask(session.mapOverlays, playArea);
+  const { darkMask, outlineRings } = buildDeductionMaskAndOutlines(
+    session.mapOverlays,
+    playArea,
+  );
   if (darkMask) {
     features.push({
       type: 'Feature',
@@ -378,8 +735,8 @@ function buildQuestionDeductionFeatures(
     });
   }
 
-  if (session.mapOverlays.length > 0) {
-    for (const ring of validRegionOutlineRings(session.mapOverlays, playArea)) {
+  if (outlineRings.length > 0) {
+    for (const ring of outlineRings) {
       features.push({
         type: 'Feature',
         properties: { kind: 'valid-outline' },
@@ -398,6 +755,8 @@ function buildQuestionDeductionFeatures(
       });
     }
   }
+
+  features.push(...buildSeekingPickerFeatures(stationMap));
 
   return features;
 }
@@ -436,6 +795,8 @@ function removeDeprecatedLayers(map: MapLibreMap): void {
 }
 
 function ensureLayers(map: MapLibreMap): void {
+  if (layersReady && map.getSource(SOURCE_ID)) return;
+
   removeDeprecatedLayers(map);
 
   if (!map.getSource(SOURCE_ID)) {
@@ -593,12 +954,43 @@ function ensureLayers(map: MapLibreMap): void {
       'circle-stroke-color': '#ffffff',
     },
   });
+
+  addIfMissing(`${SOURCE_ID}-picker-station`, {
+    id: `${SOURCE_ID}-picker-station`,
+    type: 'circle',
+    source: SOURCE_ID,
+    filter: ['==', ['get', 'kind'], 'picker-station'],
+    paint: {
+      'circle-radius': 9,
+      'circle-color': '#3b82f6',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+    },
+  });
+
+  addIfMissing(`${SOURCE_ID}-picker-route-line`, {
+    id: `${SOURCE_ID}-picker-route-line`,
+    type: 'line',
+    source: SOURCE_ID,
+    filter: ['==', ['get', 'kind'], 'picker-route-line'],
+    paint: {
+      'line-color': ['get', 'routeColor'],
+      'line-width': 7,
+      'line-opacity': 0.95,
+    },
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+  });
+  layersReady = true;
 }
 
 export function initDeductionMapOverlay(map: MapLibreMap): void {
+  clearDomOverlays();
   mapRef = map;
   ensureLayers(map);
-  subscribe(() => refreshDeductionOverlay());
+  subscribeOverlay(() => refreshDeductionOverlay());
   refreshDeductionOverlay();
 }
 
@@ -620,6 +1012,8 @@ export function refreshDeductionOverlay(): void {
   }
 
   syncPathBulletMarkers(session);
+  syncSetupStationLabel(session);
+  syncSeekingPickerStationLabel();
 
   if (session.phase === 'reveal' && session.hideStationId) {
     if (lastRevealZoomKey !== session.hideStationId) {
@@ -642,9 +1036,13 @@ export function clearDeductionOverlay(): void {
   if (!map) return;
 
   lastRevealZoomKey = null;
+  lastSyncedSetupStationId = null;
+  lastSyncedPickerStationId = null;
   revealPathVisible = true;
   revealDeductionVisible = true;
-  clearPathBulletMarkers();
+  seekingPickerStationId = null;
+  seekingPickerRouteId = null;
+  clearDomOverlays();
   const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(EMPTY_FC);
 }

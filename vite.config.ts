@@ -22,7 +22,7 @@ export default defineConfig({
       fileName: () => 'index.js',
     },
     outDir: 'dist',
-    minify: false,
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         entryFileNames: 'index.js',
