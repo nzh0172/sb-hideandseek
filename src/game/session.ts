@@ -33,6 +33,17 @@ export function resetSession(): void {
   notify();
 }
 
+/** Reset round state for setup, optionally carrying over the next starting station. */
+export function resetForNewRound(nextStartStationId: string | null): void {
+  const { config } = session;
+  session = {
+    ...createInitialSession(),
+    startStationId: nextStartStationId,
+    config: { ...config },
+  };
+  notify();
+}
+
 export function setDeductionState(data: {
   possibleStationIds: string[];
   mapOverlays: MapOverlay[];
@@ -67,6 +78,7 @@ export function setRoundData(data: {
   hideEndElapsed: number;
   possibleStationIds: string[];
   candidatePathsByStation: Record<string, ValidatedPath>;
+  phase: 'hiding' | 'seeking';
 }): void {
   session = {
     ...session,
@@ -80,7 +92,7 @@ export function setRoundData(data: {
     guessCount: 0,
     queryLog: [],
     revealReason: null,
-    phase: 'hiding',
+    phase: data.phase,
   };
   notify();
 }

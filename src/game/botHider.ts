@@ -2,8 +2,15 @@
 
 import { collapseStationIdsByGroup } from './stationGroups';
 import { haversineKm, stationsWithinRadiusKm } from './geo';
-import { findValidHideCandidates, getPlayableRoutes } from './scheduleGraph';
+import {
+  findValidHideCandidates,
+  findValidHideCandidatesReal,
+  getPlayableRoutes,
+} from './scheduleGraph';
 import type { HideCandidate, GameConfig } from './types';
+
+/** Max synthetic journey time in instant mode (no hide timer). */
+const INSTANT_MAX_TRAVEL_SECONDS = 24 * 3600;
 
 export interface BotHideResult {
   ok: true;
@@ -13,7 +20,7 @@ export interface BotHideResult {
 
 export interface BotHideFailure {
   ok: false;
-  reason: 'no_timed_routes' | 'no_candidates' | 'start_not_found';
+  reason: 'no_timed_routes' | 'no_candidates' | 'start_not_found' | 'no_trains';
   message: string;
 }
 
@@ -24,12 +31,6 @@ function isBetterBotCandidate(
   candidate: HideCandidate,
   best: HideCandidate,
 ): boolean {
-  const candidateTransfers = candidate.path.transferCount;
-  const bestTransfers = best.path.transferCount;
-  if (candidateTransfers !== bestTransfers) {
-    return candidateTransfers > bestTransfers;
-  }
-
   const candidateStation = window.SubwayBuilderAPI.gameState
     .getStations()
     .find((s) => s.id === candidate.stationId);
@@ -42,6 +43,10 @@ function isBetterBotCandidate(
   const bestDistance = haversineKm(startCoords, bestStation.coords);
   if (candidateDistance !== bestDistance) {
     return candidateDistance > bestDistance;
+  }
+
+  if (candidate.path.transferCount !== best.path.transferCount) {
+    return candidate.path.transferCount > best.path.transferCount;
   }
 
   return candidate.path.totalTimeSeconds > best.path.totalTimeSeconds;
@@ -101,6 +106,14 @@ export function pickBotHideSpot(
     };
   }
 
+  if (config.mode === 'live' && api.gameState.getTrains().length === 0) {
+    return {
+      ok: false,
+      reason: 'no_trains',
+      message: 'Live mode needs trains running. Buy and assign trains to your routes first.',
+    };
+  }
+
   const inRadius = stationsWithinRadiusKm(
     startStation,
     stations,
@@ -116,17 +129,29 @@ export function pickBotHideSpot(
     };
   }
 
-  const maxTravelSeconds = config.hideDurationHours * 3600;
-  // Search the full network; only hide destinations must land inside the play area.
+  const maxTravelSeconds =
+    config.mode === 'instant'
+      ? INSTANT_MAX_TRAVEL_SECONDS
+      : config.hideDurationHours * 3600;
+
   const allDestinationIds = collapseStationIdsByGroup(
     stations.filter((s) => s.id !== startStationId).map((s) => s.id),
   );
 
-  const reachable = findValidHideCandidates(
-    startStationId,
-    allDestinationIds,
-    maxTravelSeconds,
-  );
+  const searchStartElapsed = api.gameState.getElapsedSeconds();
+  const reachable =
+    config.mode === 'live'
+      ? findValidHideCandidatesReal(
+          startStationId,
+          allDestinationIds,
+          maxTravelSeconds,
+          searchStartElapsed,
+        )
+      : findValidHideCandidates(
+          startStationId,
+          allDestinationIds,
+          maxTravelSeconds,
+        );
 
   const candidates = reachable.filter((candidate) =>
     isDestinationInPlayArea(
@@ -141,7 +166,9 @@ export function pickBotHideSpot(
       ok: false,
       reason: 'no_candidates',
       message:
-        'No train-reachable stations within range and time limit. Make sure your starting station is on a route with other stops nearby.',
+        config.mode === 'live'
+          ? 'No train-reachable stations within range and hide time. Run more trains or increase hide time.'
+          : 'No train-reachable stations within the play area. Make sure your starting station is on a route with other stops nearby.',
     };
   }
 

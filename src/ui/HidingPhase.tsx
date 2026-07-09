@@ -29,7 +29,8 @@ export function HidingPhase() {
     <div className="flex flex-col gap-3">
       <p className="text-sm font-medium">The hider is on the move…</p>
       <p className="text-sm text-muted-foreground">
-        Simulation is running. The game will pause when hide time expires.
+        Live departures — simulation runs while the hider travels. The game pauses when hide
+        time expires.
       </p>
 
       <RoundStartInfo session={session} />

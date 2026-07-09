@@ -8,6 +8,7 @@ import {
   isRevealPathVisible,
   setRevealDeductionVisible,
   setRevealPathVisible,
+  viewPlayAreaOnMap,
 } from '../game/mapOverlay';
 import { formatValidatedPathText } from '../game/pathFormat';
 import { ForceText } from './ForceText';
@@ -70,6 +71,12 @@ export function RevealPhase() {
       </div>
 
       <RoundStartInfo session={session} />
+
+      {session.startStationId && (
+        <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
+          <ForceText text="View play area" />
+        </Button>
+      )}
 
       {session.startStationId && path && (
         <div

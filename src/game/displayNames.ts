@@ -6,6 +6,7 @@ import {
   getStationsInGroup,
   invalidateStationGroups,
 } from './stationGroups';
+import { invalidateLogicalLines } from './logicalLines';
 
 export { areSameStationGroup, getGroupRepresentative } from './stationGroups';
 
@@ -37,6 +38,7 @@ function isReadableName(value: string | undefined | null): value is string {
 export function invalidateStationLabels(): void {
   stationLabelCache = null;
   invalidateStationGroups();
+  invalidateLogicalLines();
 }
 
 function sortRouteLabels(labels: string[]): string[] {

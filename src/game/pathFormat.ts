@@ -4,6 +4,7 @@ import {
   formatStationForPath,
   getRouteDisplayName,
 } from './displayNames';
+import { isSameLogicalLine } from './logicalLines';
 import { formatGameTime } from './geo';
 import type { PathLeg, ValidatedPath } from './types';
 
@@ -17,11 +18,13 @@ function getRouteLabel(routeId: string, fallbackBullet: string): string {
   return 'Line';
 }
 
-/** Count line changes only — same-line hops are not transfers */
+/** Count real line changes — circle-loop splits and same-line hops are not transfers. */
 export function countRouteTransfers(legs: PathLeg[]): number {
   let count = 0;
   for (let i = 1; i < legs.length; i++) {
-    if (legs[i]!.routeId !== legs[i - 1]!.routeId) count++;
+    if (!isSameLogicalLine(legs[i]!.routeId, legs[i - 1]!.routeId)) {
+      count++;
+    }
   }
   return count;
 }
@@ -36,7 +39,7 @@ export function mergeLegsByRoute(legs: PathLeg[]): PathLeg[] {
     const current = legs[i]!;
     const previous = merged[merged.length - 1]!;
 
-    if (current.routeId === previous.routeId) {
+    if (isSameLogicalLine(current.routeId, previous.routeId)) {
       merged[merged.length - 1] = {
         ...previous,
         toStationId: current.toStationId,

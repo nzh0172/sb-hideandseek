@@ -19,6 +19,7 @@ import { QuestionLog } from './QuestionLog';
 import { RoundStartInfo } from './RoundStartInfo';
 import { StationLabel } from './StationLabel';
 import { StationPickerPage } from './StationPickerPage';
+import { viewPlayAreaOnMap } from '../game/mapOverlay';
 import { useSession } from './useSession';
 
 const { Button, Label } = window.SubwayBuilderAPI.utils.components as Record<
@@ -87,6 +88,12 @@ export function SeekingPhase() {
   return (
     <div className="flex flex-col gap-3">
       <RoundStartInfo session={session} />
+
+      {session.startStationId && (
+        <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
+          <ForceText text="View play area" />
+        </Button>
+      )}
 
       <p className="text-sm" style={{ opacity: 0.75 }}>
         Ask questions to narrow down the hider. Wrong guesses: {session.guessCount}

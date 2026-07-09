@@ -2,6 +2,9 @@
 
 export type GamePhase = 'setup' | 'hiding' | 'seeking' | 'reveal';
 
+/** Quick seek: synthetic timetable, no hide timer. Live: real train departures with hide timer. */
+export type GameMode = 'instant' | 'live';
+
 export interface PathLeg {
   routeId: string;
   routeName: string;
@@ -52,11 +55,13 @@ export interface MapOverlay {
 }
 
 export interface GameConfig {
+  mode: GameMode;
   hideRadiusKm: number;
   hideDurationHours: number;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
+  mode: 'instant',
   hideRadiusKm: 10,
   hideDurationHours: 3,
 };

@@ -8,7 +8,7 @@ import {
   applySameLineAsStart,
   applyTransferCount,
 } from './deduction';
-import { areSameStationGroup, getRouteDisplayName, getStationDisplayNameById } from './displayNames';
+import { areSameStationGroup, getGroupRepresentative, getRouteDisplayName, getStationDisplayNameById } from './displayNames';
 import { formatCardinalDirection, haversineKm, isCardinalDirectionOf } from './geo';
 import { clearDeductionOverlay, refreshDeductionOverlay } from './mapOverlay';
 import {
@@ -21,6 +21,7 @@ import {
   getSession,
   incrementGuessCount,
   reveal,
+  resetForNewRound,
   resetSession,
   setRoundData,
   setStartStationId,
@@ -40,8 +41,10 @@ export function startRound(startStationId: string): boolean {
   }
 
   const hideStartElapsed = api.gameState.getElapsedSeconds();
-  const hideEndElapsed =
-    hideStartElapsed + session.config.hideDurationHours * 3600;
+  const isLive = session.config.mode === 'live';
+  const hideEndElapsed = isLive
+    ? hideStartElapsed + session.config.hideDurationHours * 3600
+    : hideStartElapsed;
 
   setStartStationId(startStationId);
   setRoundData({
@@ -53,18 +56,24 @@ export function startRound(startStationId: string): boolean {
     candidatePathsByStation: Object.fromEntries(
       outcome.allCandidates.map((c) => [c.stationId, c.path]),
     ),
+    phase: isLive ? 'hiding' : 'seeking',
   });
 
   clearDeductionOverlay();
 
-  api.actions.setPause(false);
-  api.ui.showNotification('The hider is on the move. Good luck!', 'info');
+  if (isLive) {
+    api.actions.setPause(false);
+    api.ui.showNotification('The hider is on the move. Good luck!', 'info');
+  } else {
+    refreshDeductionOverlay();
+    api.ui.showNotification('The hider has hidden. Start deducing!', 'info');
+  }
   return true;
 }
 
 export function tickHideTimer(): void {
   const session = getSession();
-  if (session.phase !== 'hiding') return;
+  if (session.phase !== 'hiding' || session.config.mode !== 'live') return;
 
   const elapsed = api.gameState.getElapsedSeconds();
   if (elapsed >= session.hideEndElapsed) {
@@ -190,13 +199,20 @@ export function querySameLineAsStart(): void {
 }
 
 export function newRound(): void {
+  const session = getSession();
+  const nextStartStationId = session.hideStationId
+    ? getGroupRepresentative(session.hideStationId)
+    : null;
+
   clearDeductionOverlay();
-  resetSession();
+  resetForNewRound(nextStartStationId);
   refreshDeductionOverlay();
 }
 
-export function canStartRound(): boolean {
-  return getPlayableRoutes().length > 0;
+export function canStartRound(mode = getSession().config.mode): boolean {
+  if (getPlayableRoutes().length === 0) return false;
+  if (mode === 'live' && api.gameState.getTrains().length === 0) return false;
+  return true;
 }
 
 export function validateSessionIntegrity(): void {

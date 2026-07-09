@@ -5,6 +5,13 @@ import type { Coordinate } from '../types/core';
 import type { HideCandidate, PathLeg, ValidatedPath } from './types';
 import { getStationDisplayName } from './displayNames';
 import { getCurrentTimeOfDaySeconds } from './geo';
+import {
+  buildDepartureIndex,
+  edgeDepartureKey,
+  firstDepartureAtOrAfter,
+  type DepartureIndex,
+} from './realDepartures';
+import { getLogicalLineId, isMovingLeg } from './logicalLines';
 import { countRouteTransfers } from './pathFormat';
 import { areSameStationGroup } from './stationGroups';
 
@@ -49,12 +56,21 @@ interface SearchState {
   legs: PathLeg[];
 }
 
+interface RealSearchState {
+  node: GraphNode;
+  readyAtElapsed: number;
+  journeyElapsed: number;
+  legs: PathLeg[];
+}
+
 interface RouteStopInfo {
   route: Route;
   stopStationIds: string[];
   timingsByIndex: StComboTiming[];
   cycleSeconds: number;
 }
+
+export type { RouteStopInfo };
 
 function getStationMap(stations: Station[]): Map<string, Station> {
   return new Map(stations.map((s) => [s.id, s]));
@@ -278,6 +294,7 @@ function tryTraverseEdge(
   const fromStation = stationMap.get(edge.leg.fromStationId);
   const toStation = stationMap.get(edge.leg.toStationId);
   if (!fromStation || !toStation) return null;
+  if (!isMovingLeg(edge.leg.fromStationId, edge.leg.toStationId)) return null;
 
   const fromTiming = timingAtStop(info, edge.fromStopIndex);
   const toTiming = timingAtStop(info, edge.to.stopIndex);
@@ -285,8 +302,9 @@ function tryTraverseEdge(
   const absoluteTimes = usesAbsoluteTimeOfDay(info.timingsByIndex);
 
   let scheduled: ScheduledLeg | null = null;
+  const forwardHop = edge.fromStopIndex < edge.to.stopIndex;
 
-  if (fromTiming && toTiming) {
+  if (forwardHop && fromTiming && toTiming) {
     scheduled = scheduleLegFromTimings(
       state.readyAt,
       fromTiming,
@@ -333,10 +351,13 @@ function segmentTravelSeconds(
   fromIndex: number,
   toIndex: number,
 ): number {
-  if (fromIndex >= toIndex) return Infinity;
+  if (fromIndex === toIndex) return Infinity;
 
-  const fromTiming = timingAtStop(info, fromIndex);
-  const toTiming = timingAtStop(info, toIndex);
+  const min = Math.min(fromIndex, toIndex);
+  const max = Math.max(fromIndex, toIndex);
+
+  const fromTiming = timingAtStop(info, min);
+  const toTiming = timingAtStop(info, max);
   if (fromTiming && toTiming) {
     return normalizeDelta(
       fromTiming.departureTime,
@@ -347,12 +368,12 @@ function segmentTravelSeconds(
 
   const stCombos = info.route.stCombos ?? [];
   let distance = 0;
-  for (let i = fromIndex; i < toIndex; i++) {
+  for (let i = min; i < max; i++) {
     const combo = stCombos[i];
     distance += combo?.distance ?? 500;
   }
 
-  const stops = toIndex - fromIndex;
+  const stops = max - min;
   return distance / AVG_TRAIN_SPEED_MPS + stops * DEFAULT_DWELL_SECONDS;
 }
 
@@ -383,6 +404,21 @@ function buildRouteEdges(info: RouteStopInfo, stationMap: Map<string, Station>):
         toStationName: toStation.name,
       },
     });
+
+    // Trains run both ways — required for line-end / line-start stations.
+    edges.push({
+      fromStopIndex: toIndex,
+      to: { stationId: fromStationId, routeId: route.id, stopIndex: fromIndex },
+      leg: {
+        routeId: route.id,
+        routeName,
+        routeBullet,
+        fromStationId: toStationId,
+        fromStationName: toStation.name,
+        toStationId: fromStationId,
+        toStationName: fromStation.name,
+      },
+    });
   }
 
   return edges;
@@ -400,12 +436,12 @@ function rebuildPath(legs: PathLeg[], totalTimeSeconds: number): ValidatedPath {
   };
 }
 
-/** Prefer more transfers, then longer journeys that use the hide window. */
+/** Prefer shortest schedule-valid path; tie-break on more real transfers. */
 function isBetterHidePath(candidate: ValidatedPath, current: ValidatedPath): boolean {
-  if (candidate.transferCount !== current.transferCount) {
-    return candidate.transferCount > current.transferCount;
+  if (candidate.totalTimeSeconds !== current.totalTimeSeconds) {
+    return candidate.totalTimeSeconds < current.totalTimeSeconds;
   }
-  return candidate.totalTimeSeconds > current.totalTimeSeconds;
+  return candidate.transferCount > current.transferCount;
 }
 
 function heapPush(heap: SearchState[], item: SearchState): void {
@@ -470,6 +506,12 @@ export function getPlayableRoutes(): Route[] {
     const info = buildRouteStopInfo(route);
     return info !== null;
   });
+}
+
+export function getPlayableRouteInfos(): RouteStopInfo[] {
+  return getPlayableRoutes()
+    .map(buildRouteStopInfo)
+    .filter((info): info is RouteStopInfo => info !== null);
 }
 
 /** Station IDs on a route in stop order (playable or partial routes). */
@@ -754,6 +796,228 @@ export function findValidHideCandidates(
   return results.sort((a, b) => a.stationName.localeCompare(b.stationName));
 }
 
+function tryTraverseEdgeReal(
+  state: RealSearchState,
+  edge: GraphEdge,
+  departureIndex: DepartureIndex,
+  groups: Map<string, string>,
+  maxTravelSeconds: number,
+  searchStartElapsed: number,
+): RealSearchState | null {
+  if (!isMovingLeg(edge.leg.fromStationId, edge.leg.toStationId)) return null;
+
+  const canon = canonicalize(edge.leg.fromStationId, groups);
+  const key = edgeDepartureKey(
+    canon,
+    edge.leg.routeId,
+    edge.fromStopIndex,
+    edge.to.stopIndex,
+  );
+
+  const readyElapsed = searchStartElapsed + state.journeyElapsed;
+  const waitReadyAt = Math.max(readyElapsed, state.readyAtElapsed);
+  const departure = firstDepartureAtOrAfter(departureIndex.byEdge.get(key) ?? [], waitReadyAt);
+  if (!departure) return null;
+
+  const newJourneyElapsed = departure.arriveAt - searchStartElapsed;
+  if (newJourneyElapsed > maxTravelSeconds) return null;
+
+  const leg: PathLeg = {
+    ...edge.leg,
+    departureTime: departure.boardAt,
+    arrivalTime: departure.arriveAt,
+  };
+
+  return {
+    node: edge.to,
+    readyAtElapsed: departure.arriveAt,
+    journeyElapsed: newJourneyElapsed,
+    legs: [...state.legs, leg],
+  };
+}
+
+function heapPushReal(heap: RealSearchState[], item: RealSearchState): void {
+  heap.push(item);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = (index - 1) >> 1;
+    if (heap[parent]!.journeyElapsed <= heap[index]!.journeyElapsed) break;
+    [heap[parent], heap[index]] = [heap[index]!, heap[parent]!];
+    index = parent;
+  }
+}
+
+function heapPopReal(heap: RealSearchState[]): RealSearchState | undefined {
+  if (heap.length === 0) return undefined;
+  const top = heap[0]!;
+  const last = heap.pop()!;
+  if (heap.length === 0) return top;
+
+  heap[0] = last;
+  let index = 0;
+  while (true) {
+    let smallest = index;
+    const left = index * 2 + 1;
+    const right = left + 1;
+    if (left < heap.length && heap[left]!.journeyElapsed < heap[smallest]!.journeyElapsed) {
+      smallest = left;
+    }
+    if (right < heap.length && heap[right]!.journeyElapsed < heap[smallest]!.journeyElapsed) {
+      smallest = right;
+    }
+    if (smallest === index) break;
+    [heap[index], heap[smallest]] = [heap[smallest]!, heap[index]!];
+    index = smallest;
+  }
+
+  return top;
+}
+
+/** Pathfind using only real train departures in the hide window. */
+export function findValidHideCandidatesReal(
+  startStationId: string,
+  candidateStationIds: string[],
+  maxTravelSeconds: number,
+  searchStartElapsed: number,
+): HideCandidate[] {
+  const stations = api.gameState.getStations();
+  const stationMap = getStationMap(stations);
+  const groups = buildStationGroups(stations);
+  const startCanon = canonicalize(startStationId, groups);
+
+  if (!stationMap.has(startStationId)) return [];
+
+  const trains = api.gameState.getTrains();
+  if (trains.length === 0) return [];
+
+  const candidateSet = new Set(candidateStationIds);
+  const candidateByCanonical = new Map<string, string>();
+  for (const id of candidateStationIds) {
+    candidateByCanonical.set(canonicalize(id, groups), id);
+  }
+  const targetCanonical = new Set(candidateByCanonical.keys());
+
+  const routeInfos = getPlayableRouteInfos();
+  if (routeInfos.length === 0) return [];
+
+  const routeInfoById = new Map(routeInfos.map((info) => [info.route.id, info]));
+  const departureIndex = buildDepartureIndex(
+    trains,
+    routeInfos,
+    searchStartElapsed,
+    searchStartElapsed + maxTravelSeconds,
+  );
+
+  const edgesByNode = new Map<string, GraphEdge[]>();
+  for (const info of routeInfos) {
+    for (const edge of buildRouteEdges(info, stationMap)) {
+      const fromKey = nodeKey(
+        info.route.id,
+        edge.fromStopIndex,
+        edge.leg.fromStationId,
+      );
+      if (!edgesByNode.has(fromKey)) edgesByNode.set(fromKey, []);
+      edgesByNode.get(fromKey)!.push(edge);
+    }
+  }
+
+  const startNodes = collectStartNodes(routeInfos, startStationId, groups);
+  if (startNodes.length === 0) return [];
+
+  const transfersByCanonical = buildTransferIndex(routeInfos, groups);
+  const bestByStation = new Map<string, ValidatedPath>();
+  const heap: RealSearchState[] = [];
+  for (const node of startNodes) {
+    heapPushReal(heap, {
+      node,
+      readyAtElapsed: searchStartElapsed,
+      journeyElapsed: 0,
+      legs: [],
+    });
+  }
+
+  const visited = new Set<string>();
+  let expansions = 0;
+
+  while (heap.length > 0) {
+    if (expansions++ >= MAX_SEARCH_EXPANSIONS) break;
+
+    const current = heapPopReal(heap)!;
+    const canonStation = canonicalize(current.node.stationId, groups);
+
+    const visitKey = `${canonStation}|${current.node.routeId}|${current.node.stopIndex}|${Math.floor(current.journeyElapsed / VISIT_TIME_BUCKET_SECONDS)}`;
+    if (visited.has(visitKey)) continue;
+    visited.add(visitKey);
+
+    if (
+      targetCanonical.has(canonStation) &&
+      canonStation !== startCanon &&
+      current.journeyElapsed <= maxTravelSeconds &&
+      current.legs.length > 0
+    ) {
+      const destStationId =
+        candidateByCanonical.get(canonStation) ??
+        (candidateSet.has(current.node.stationId) ? current.node.stationId : null);
+      if (destStationId) {
+        const path = rebuildPath(current.legs, current.journeyElapsed);
+        const existing = bestByStation.get(destStationId);
+        if (!existing || isBetterHidePath(path, existing)) {
+          bestByStation.set(destStationId, path);
+        }
+      }
+    }
+
+    if (current.journeyElapsed >= maxTravelSeconds) continue;
+
+    const fromKey = nodeKey(
+      current.node.routeId,
+      current.node.stopIndex,
+      current.node.stationId,
+    );
+
+    for (const edge of edgesByNode.get(fromKey) ?? []) {
+      const next = tryTraverseEdgeReal(
+        current,
+        edge,
+        departureIndex,
+        groups,
+        maxTravelSeconds,
+        searchStartElapsed,
+      );
+      if (next) heapPushReal(heap, next);
+    }
+
+    for (const transferNode of transfersByCanonical.get(canonStation) ?? []) {
+      if (
+        transferNode.routeId === current.node.routeId &&
+        transferNode.stopIndex === current.node.stopIndex
+      ) {
+        continue;
+      }
+
+      const transferJourney = current.journeyElapsed + TRANSFER_WALK_SECONDS;
+      if (transferJourney <= maxTravelSeconds) {
+        heapPushReal(heap, {
+          node: transferNode,
+          readyAtElapsed: current.readyAtElapsed + TRANSFER_WALK_SECONDS,
+          journeyElapsed: transferJourney,
+          legs: current.legs,
+        });
+      }
+    }
+  }
+
+  const results: HideCandidate[] = [];
+  for (const [stationId, path] of bestByStation) {
+    const station = stationMap.get(stationId);
+    if (station) {
+      results.push({ stationId, stationName: getStationDisplayName(station), path });
+    }
+  }
+
+  return results.sort((a, b) => a.stationName.localeCompare(b.stationName));
+}
+
 export function isStationOnRoute(stationId: string, routeId: string): boolean {
   const route = api.gameState.getRoutes().find((r) => r.id === routeId);
   if (!route) return false;
@@ -780,5 +1044,27 @@ export function isSameLineWithoutTransfer(
       return true;
     }
   }
+
+  const stopsByLogicalLine = new Map<string, Set<string>>();
+  for (const route of getPlayableRoutes()) {
+    const info = buildRouteStopInfo(route);
+    if (!info) continue;
+    const lineId = getLogicalLineId(route.id);
+    let stops = stopsByLogicalLine.get(lineId);
+    if (!stops) {
+      stops = new Set<string>();
+      stopsByLogicalLine.set(lineId, stops);
+    }
+    for (const id of info.stopStationIds) {
+      stops.add(canonicalize(id, groups));
+    }
+  }
+
+  for (const stops of stopsByLogicalLine.values()) {
+    if (stops.has(startCanon) && stops.has(hideCanon)) {
+      return true;
+    }
+  }
+
   return false;
 }
