@@ -12,6 +12,16 @@ import type { HideCandidate, GameConfig } from './types';
 /** Max synthetic journey time in instant mode (no hide timer). */
 const INSTANT_MAX_TRAVEL_SECONDS = 24 * 3600;
 
+/** Outer ring of the play area (stations near the edge). */
+const BOUNDARY_MARGIN_RATIO = 0.12;
+
+/** Distance bands as a fraction of play-area radius from the start station. */
+const NEAR_BAND: [number, number] = [0.12, 0.42];
+const FAR_BAND: [number, number] = [0.42, 0.72];
+
+/** Relative chance of each hide zone (must sum to 1). Boundary is allowed but uncommon. */
+const ZONE_WEIGHTS = { near: 0.4, far: 0.4, boundary: 0.2 } as const;
+
 export interface BotHideResult {
   ok: true;
   candidate: HideCandidate;
@@ -26,48 +36,101 @@ export interface BotHideFailure {
 
 export type BotHideOutcome = BotHideResult | BotHideFailure;
 
-function isBetterBotCandidate(
+function stationCoords(stationId: string): [number, number] | null {
+  return (
+    window.SubwayBuilderAPI.gameState
+      .getStations()
+      .find((s) => s.id === stationId)?.coords ?? null
+  );
+}
+
+function distanceRatioFromStart(
   startCoords: [number, number],
-  candidate: HideCandidate,
-  best: HideCandidate,
+  stationId: string,
+  radiusKm: number,
+): number | null {
+  const coords = stationCoords(stationId);
+  if (!coords || radiusKm <= 0) return null;
+  return haversineKm(startCoords, coords) / radiusKm;
+}
+
+function isNearPlayAreaBoundary(
+  startCoords: [number, number],
+  stationId: string,
+  radiusKm: number,
 ): boolean {
-  const candidateStation = window.SubwayBuilderAPI.gameState
-    .getStations()
-    .find((s) => s.id === candidate.stationId);
-  const bestStation = window.SubwayBuilderAPI.gameState
-    .getStations()
-    .find((s) => s.id === best.stationId);
-  if (!candidateStation || !bestStation) return false;
+  const ratio = distanceRatioFromStart(startCoords, stationId, radiusKm);
+  return ratio !== null && ratio >= 1 - BOUNDARY_MARGIN_RATIO;
+}
 
-  const candidateDistance = haversineKm(startCoords, candidateStation.coords);
-  const bestDistance = haversineKm(startCoords, bestStation.coords);
-  if (candidateDistance !== bestDistance) {
-    return candidateDistance > bestDistance;
+function isInDistanceBand(
+  startCoords: [number, number],
+  stationId: string,
+  radiusKm: number,
+  band: [number, number],
+): boolean {
+  const ratio = distanceRatioFromStart(startCoords, stationId, radiusKm);
+  return ratio !== null && ratio >= band[0] && ratio <= band[1];
+}
+
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
+}
+
+type HideZone = keyof typeof ZONE_WEIGHTS;
+
+function pickHideZone(): HideZone {
+  const r = Math.random();
+  if (r < ZONE_WEIGHTS.near) return 'near';
+  if (r < ZONE_WEIGHTS.near + ZONE_WEIGHTS.far) return 'far';
+  return 'boundary';
+}
+
+function candidatesInZone(
+  startCoords: [number, number],
+  candidates: HideCandidate[],
+  radiusKm: number,
+  zone: HideZone,
+): HideCandidate[] {
+  if (zone === 'boundary') {
+    return candidates.filter((c) =>
+      isNearPlayAreaBoundary(startCoords, c.stationId, radiusKm),
+    );
   }
 
-  if (candidate.path.transferCount !== best.path.transferCount) {
-    return candidate.path.transferCount > best.path.transferCount;
-  }
-
-  return candidate.path.totalTimeSeconds > best.path.totalTimeSeconds;
+  const band = zone === 'near' ? NEAR_BAND : FAR_BAND;
+  return candidates.filter(
+    (c) =>
+      isInDistanceBand(startCoords, c.stationId, radiusKm, band) &&
+      !isNearPlayAreaBoundary(startCoords, c.stationId, radiusKm),
+  );
 }
 
 function pickBotCandidate(
   startStationId: string,
   candidates: HideCandidate[],
+  radiusKm: number,
 ): HideCandidate {
-  const start = window.SubwayBuilderAPI.gameState
-    .getStations()
-    .find((s) => s.id === startStationId)!;
+  const startCoords = stationCoords(startStationId);
+  if (!startCoords || candidates.length === 1) return candidates[0]!;
 
-  let best = candidates[0]!;
-  for (let i = 1; i < candidates.length; i++) {
-    const candidate = candidates[i]!;
-    if (isBetterBotCandidate(start.coords, candidate, best)) {
-      best = candidate;
-    }
+  const zoneOrder: HideZone[] = [pickHideZone(), 'near', 'far', 'boundary'];
+  const tried = new Set<HideZone>();
+
+  for (const zone of zoneOrder) {
+    if (tried.has(zone)) continue;
+    tried.add(zone);
+
+    const pool = candidatesInZone(startCoords, candidates, radiusKm, zone);
+    if (pool.length > 0) return pickRandom(pool);
   }
-  return best;
+
+  const nonBoundary = candidates.filter(
+    (c) => !isNearPlayAreaBoundary(startCoords, c.stationId, radiusKm),
+  );
+  if (nonBoundary.length > 0) return pickRandom(nonBoundary);
+
+  return pickRandom(candidates);
 }
 
 function isDestinationInPlayArea(
@@ -172,6 +235,6 @@ export function pickBotHideSpot(
     };
   }
 
-  const candidate = pickBotCandidate(startStationId, candidates);
+  const candidate = pickBotCandidate(startStationId, candidates, config.hideRadiusKm);
   return { ok: true, candidate, allCandidates: candidates };
 }

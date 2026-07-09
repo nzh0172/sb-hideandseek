@@ -45,6 +45,7 @@ export function SeekingPhase() {
   const [refStationId, setRefStationId] = useState(defaultRefId);
   const [guessId, setGuessId] = useState(stations[0]?.id ?? '');
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
+  const [lineHighlightEnabled, setLineHighlightEnabled] = useState(false);
 
   const startStationId = session.startStationId
     ? getGroupRepresentative(session.startStationId)
@@ -87,6 +88,8 @@ export function SeekingPhase() {
   if (pickerTarget === 'line') {
     return (
       <LinePickerPage
+        showLineHighlight={lineHighlightEnabled}
+        onShowLineHighlightChange={setLineHighlightEnabled}
         onPick={(routeId) => {
           queryOnLine(routeId);
           clearSeekingPickerHighlight();

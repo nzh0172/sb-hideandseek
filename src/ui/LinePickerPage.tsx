@@ -20,6 +20,8 @@ const { Button, Input, Label, Switch } = api.utils.components as Record<
 interface LinePickerPageProps {
   onPick: (routeId: string) => void;
   onBack: () => void;
+  showLineHighlight: boolean;
+  onShowLineHighlightChange: (enabled: boolean) => void;
 }
 
 function LineListItem({
@@ -75,9 +77,13 @@ function LineListItem({
   );
 }
 
-export function LinePickerPage({ onPick, onBack }: LinePickerPageProps) {
+export function LinePickerPage({
+  onPick,
+  onBack,
+  showLineHighlight,
+  onShowLineHighlightChange,
+}: LinePickerPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [showLineHighlight, setShowLineHighlight] = useState(false);
   const [highlightedRouteId, setHighlightedRouteId] = useState<string | null>(null);
   const routes = useMemo(
     () => [...api.gameState.getRoutes()].sort(compareRouteLabels),
@@ -139,7 +145,7 @@ export function LinePickerPage({ onPick, onBack }: LinePickerPageProps) {
             id="show-line-highlight"
             checked={showLineHighlight}
             onCheckedChange={(checked: boolean) => {
-              setShowLineHighlight(checked);
+              onShowLineHighlightChange(checked);
               if (!checked) setHighlightedRouteId(null);
             }}
           />
