@@ -1,6 +1,6 @@
 /** Seeking phase: deduction tools and guess */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getGroupRepresentative, getSortedStations } from '../game/displayNames';
 import type { CardinalDirection } from '../game/types';
 import {
@@ -12,6 +12,12 @@ import {
   queryTransferCount,
   queryWithinKmFromStation,
 } from '../game/controller';
+import { getAutoZoomValidRegionEnabled } from '../game/seekingPreferences';
+import {
+  clearSeekingPickerHighlight,
+  setAutoZoomValidRegionEnabled,
+  viewPlayAreaOnMap,
+} from '../game/mapOverlay';
 import { ForceText } from './ForceText';
 import { LabeledButton } from './LabeledButton';
 import { LinePickerPage } from './LinePickerPage';
@@ -19,13 +25,9 @@ import { QuestionLog } from './QuestionLog';
 import { RoundStartInfo } from './RoundStartInfo';
 import { StationLabel } from './StationLabel';
 import { StationPickerPage } from './StationPickerPage';
-import {
-  clearSeekingPickerHighlight,
-  viewPlayAreaOnMap,
-} from '../game/mapOverlay';
 import { useSession } from './useSession';
 
-const { Button, Label } = window.SubwayBuilderAPI.utils.components as Record<
+const { Button, Label, Switch } = window.SubwayBuilderAPI.utils.components as Record<
   string,
   React.ComponentType<any>
 >;
@@ -45,7 +47,11 @@ export function SeekingPhase() {
   const [refStationId, setRefStationId] = useState(defaultRefId);
   const [guessId, setGuessId] = useState(stations[0]?.id ?? '');
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
-  const [lineHighlightEnabled, setLineHighlightEnabled] = useState(false);
+  const [autoZoomValidRegion, setAutoZoomValidRegion] = useState(getAutoZoomValidRegionEnabled);
+
+  useEffect(() => {
+    setAutoZoomValidRegionEnabled(getAutoZoomValidRegionEnabled());
+  }, []);
 
   const startStationId = session.startStationId
     ? getGroupRepresentative(session.startStationId)
@@ -88,8 +94,6 @@ export function SeekingPhase() {
   if (pickerTarget === 'line') {
     return (
       <LinePickerPage
-        showLineHighlight={lineHighlightEnabled}
-        onShowLineHighlightChange={setLineHighlightEnabled}
         onPick={(routeId) => {
           queryOnLine(routeId);
           clearSeekingPickerHighlight();
@@ -114,6 +118,24 @@ export function SeekingPhase() {
         Map dims ruled-out areas. The purple circle is the play area; questions
         narrow the bright region inside it.
       </p>
+
+      {/* <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="auto-zoom-valid-region">Zoom to remaining area</Label>
+          <Switch
+            id="auto-zoom-valid-region"
+            checked={autoZoomValidRegion}
+            onCheckedChange={(checked: boolean) => {
+              setAutoZoomValidRegion(checked);
+              setAutoZoomValidRegionEnabled(checked);
+            }}
+          />
+        </div>
+        <ForceText
+          text="When on, the map recenters on the bright region after each question."
+          style={{ fontSize: '11px', opacity: 0.65 }}
+        />
+      </div> */}
 
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">Reference station</span>
@@ -244,9 +266,9 @@ export function SeekingPhase() {
           <Button onClick={() => guessStation(guessId)}>Submit Guess</Button>
           <Button variant="destructive" onClick={giveUp}>Give Up</Button>
           {session.startStationId && (
-          <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
-            <ForceText text="View play area" />
-          </Button>
+            <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
+              <ForceText text="View play area" />
+            </Button>
           )}
         </div>
       </div>

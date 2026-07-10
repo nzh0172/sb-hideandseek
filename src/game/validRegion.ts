@@ -277,6 +277,14 @@ function deductionCacheKey(
   return `${overlayKey}|${playKey}|${api.gameState.getStations().length}`;
 }
 
+/** Cache key for deduction geometry — used to skip redundant map zooms. */
+export function getDeductionGeometryKey(
+  overlays: MapOverlay[],
+  playArea: AreaFeature | null = null,
+): string {
+  return deductionCacheKey(overlays, playArea);
+}
+
 let deductionGeometryCache: {
   key: string;
   darkMask: AreaFeature | null;
@@ -364,4 +372,24 @@ export function playAreaRegion(
   radiusKm: number,
 ): AreaFeature {
   return circleArea(center, radiusKm);
+}
+
+/** Bounding ring for the bright valid region (for map fitBounds). */
+export function validRegionBboxRing(
+  overlays: MapOverlay[],
+  playArea: AreaFeature | null = null,
+): [number, number][] | null {
+  const valid = computeValidRegion(overlays, playArea);
+  if (!valid) return null;
+
+  const [minLon, minLat, maxLon, maxLat] = bbox(valid as never);
+  if (!Number.isFinite(minLon)) return null;
+
+  return [
+    [minLon, minLat],
+    [maxLon, minLat],
+    [maxLon, maxLat],
+    [minLon, maxLat],
+    [minLon, minLat],
+  ];
 }

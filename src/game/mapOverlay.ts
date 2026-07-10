@@ -14,7 +14,17 @@ import {
   type RevealPathBulletFeature,
 } from './revealPathMap';
 import { getSession, subscribeOverlay } from './session';
-import { buildDeductionMaskAndOutlines, playAreaRegion } from './validRegion';
+import {
+  getAutoZoomValidRegionEnabled as getAutoZoomPref,
+  setAutoZoomValidRegionEnabled as setAutoZoomPref,
+  setLinePickerRouteId,
+} from './seekingPreferences';
+import {
+  buildDeductionMaskAndOutlines,
+  getDeductionGeometryKey,
+  playAreaRegion,
+  validRegionBboxRing,
+} from './validRegion';
 import type { HideSeekSession } from './types';
 
 const api = window.SubwayBuilderAPI;
@@ -85,6 +95,7 @@ let domOverlayListenersAttached = false;
 let layersReady = false;
 let lastSyncedSetupStationId: string | null = null;
 let lastSyncedPickerStationId: string | null = null;
+let lastAutoZoomKey: string | null = null;
 
 function isValidCoordinate(coord: [number, number]): boolean {
   return Number.isFinite(coord[0]) && Number.isFinite(coord[1]);
@@ -406,20 +417,21 @@ export function setSetupStationLabelVisible(visible: boolean): void {
 export function setSeekingPickerStationHighlight(stationId: string | null): void {
   if (seekingPickerStationId === stationId) return;
   seekingPickerStationId = stationId;
-  refreshDeductionOverlay();
+  refreshDeductionOverlay({ allowZoom: false });
 }
 
 export function setSeekingPickerRouteHighlight(routeId: string | null): void {
   if (seekingPickerRouteId === routeId) return;
   seekingPickerRouteId = routeId;
-  refreshDeductionOverlay();
+  setLinePickerRouteId(routeId);
+  refreshDeductionOverlay({ allowZoom: false });
 }
 
 export function clearSeekingPickerHighlight(): void {
   if (seekingPickerStationId === null && seekingPickerRouteId === null) return;
   seekingPickerStationId = null;
   seekingPickerRouteId = null;
-  refreshDeductionOverlay();
+  refreshDeductionOverlay({ allowZoom: false });
 }
 
 function buildPlayAreaFeatures(
@@ -609,6 +621,33 @@ export function viewPlayAreaOnMap(): void {
 
   const ring = circlePolygonRing(start.coords, session.config.hideRadiusKm);
   fitBoundsToRing(ring, { padding: 72, maxZoom: 14 });
+}
+
+export function getAutoZoomValidRegionEnabled(): boolean {
+  return getAutoZoomPref();
+}
+
+export function setAutoZoomValidRegionEnabled(enabled: boolean): void {
+  if (getAutoZoomPref() === enabled) return;
+  setAutoZoomPref(enabled);
+  if (enabled) lastAutoZoomKey = null;
+  refreshDeductionOverlay();
+}
+
+function maybeZoomToValidRegion(session: HideSeekSession): void {
+  if (!getAutoZoomPref() || session.phase !== 'seeking') return;
+
+  const playArea = getPlayAreaForSession(session);
+  const key = getDeductionGeometryKey(session.mapOverlays, playArea);
+  if (key === lastAutoZoomKey) return;
+  lastAutoZoomKey = key;
+
+  const ring = validRegionBboxRing(session.mapOverlays, playArea);
+  if (!ring) {
+    viewPlayAreaOnMap();
+    return;
+  }
+  fitBoundsToRing(ring, { padding: 56, maxZoom: 15 });
 }
 
 /** Pan/zoom to the revealed hide station. */
@@ -994,7 +1033,7 @@ export function initDeductionMapOverlay(map: MapLibreMap): void {
   refreshDeductionOverlay();
 }
 
-export function refreshDeductionOverlay(): void {
+export function refreshDeductionOverlay(options?: { allowZoom?: boolean }): void {
   const map = mapRef ?? api.utils.getMap();
   if (!map) return;
 
@@ -1029,6 +1068,10 @@ export function refreshDeductionOverlay(): void {
   }
 
   lastRevealZoomKey = null;
+
+  if (options?.allowZoom !== false) {
+    maybeZoomToValidRegion(session);
+  }
 }
 
 export function clearDeductionOverlay(): void {
@@ -1038,6 +1081,7 @@ export function clearDeductionOverlay(): void {
   lastRevealZoomKey = null;
   lastSyncedSetupStationId = null;
   lastSyncedPickerStationId = null;
+  lastAutoZoomKey = null;
   revealPathVisible = true;
   revealDeductionVisible = true;
   seekingPickerStationId = null;

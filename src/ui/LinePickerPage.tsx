@@ -7,6 +7,12 @@ import {
   getRouteDisplayName,
 } from '../game/displayNames';
 import { setSeekingPickerRouteHighlight } from '../game/mapOverlay';
+import {
+  getLinePickerRouteId,
+  getSeekingLineHighlightEnabled,
+  setLinePickerRouteId,
+  setSeekingLineHighlightEnabled,
+} from '../game/seekingPreferences';
 import type { Route } from '../types/game-state';
 import { ForceText } from './ForceText';
 import { LineBullet } from './LineBullet';
@@ -20,8 +26,6 @@ const { Button, Input, Label, Switch } = api.utils.components as Record<
 interface LinePickerPageProps {
   onPick: (routeId: string) => void;
   onBack: () => void;
-  showLineHighlight: boolean;
-  onShowLineHighlightChange: (enabled: boolean) => void;
 }
 
 function LineListItem({
@@ -77,14 +81,12 @@ function LineListItem({
   );
 }
 
-export function LinePickerPage({
-  onPick,
-  onBack,
-  showLineHighlight,
-  onShowLineHighlightChange,
-}: LinePickerPageProps) {
+export function LinePickerPage({ onPick, onBack }: LinePickerPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [highlightedRouteId, setHighlightedRouteId] = useState<string | null>(null);
+  const [showLineHighlight, setShowLineHighlight] = useState(getSeekingLineHighlightEnabled);
+  const [highlightedRouteId, setHighlightedRouteId] = useState<string | null>(
+    () => (getSeekingLineHighlightEnabled() ? getLinePickerRouteId() : null),
+  );
   const routes = useMemo(
     () => [...api.gameState.getRoutes()].sort(compareRouteLabels),
     [],
@@ -105,21 +107,38 @@ export function LinePickerPage({
   useEffect(() => {
     if (!showLineHighlight) {
       setSeekingPickerRouteHighlight(null);
+      return;
     }
-  }, [showLineHighlight]);
 
-  useEffect(() => {
-    if (!showLineHighlight) return;
-    setSeekingPickerRouteHighlight(highlightedRouteId);
-  }, [showLineHighlight, highlightedRouteId]);
-
-  useEffect(() => {
-    if (!showLineHighlight || visibleRoutes.length === 0) return;
-
-    if (!highlightedRouteId || !visibleRoutes.some((route) => route.id === highlightedRouteId)) {
-      setHighlightedRouteId(visibleRoutes[0]!.id);
+    let routeId = highlightedRouteId;
+    if (
+      !routeId ||
+      !visibleRoutes.some((route) => route.id === routeId)
+    ) {
+      routeId = visibleRoutes[0]?.id ?? null;
+      if (routeId !== highlightedRouteId) {
+        setHighlightedRouteId(routeId);
+        return;
+      }
     }
+
+    setSeekingPickerRouteHighlight(routeId);
   }, [showLineHighlight, highlightedRouteId, visibleRoutes]);
+
+  const handleHighlightToggle = (checked: boolean) => {
+    setSeekingLineHighlightEnabled(checked);
+    setShowLineHighlight(checked);
+    if (!checked) {
+      setHighlightedRouteId(null);
+      setLinePickerRouteId(null);
+    }
+  };
+
+  const handleRouteHighlight = (routeId: string) => {
+    if (!showLineHighlight) return;
+    setHighlightedRouteId(routeId);
+    setLinePickerRouteId(routeId);
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -144,10 +163,7 @@ export function LinePickerPage({
           <Switch
             id="show-line-highlight"
             checked={showLineHighlight}
-            onCheckedChange={(checked: boolean) => {
-              onShowLineHighlightChange(checked);
-              if (!checked) setHighlightedRouteId(null);
-            }}
+            onCheckedChange={handleHighlightToggle}
           />
         </div>
         <ForceText
@@ -182,9 +198,7 @@ export function LinePickerPage({
                 route={route}
                 index={routeIndex >= 0 ? routeIndex : index}
                 selected={showLineHighlight && route.id === highlightedRouteId}
-                onHighlight={() => {
-                  if (showLineHighlight) setHighlightedRouteId(route.id);
-                }}
+                onHighlight={() => handleRouteHighlight(route.id)}
                 onPick={() => onPick(route.id)}
               />
             );

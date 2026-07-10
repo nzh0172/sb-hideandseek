@@ -6,6 +6,7 @@ import {
   findValidHideCandidates,
   findValidHideCandidatesReal,
   getPlayableRoutes,
+  type PlayAreaConstraint,
 } from './scheduleGraph';
 import type { HideCandidate, GameConfig } from './types';
 
@@ -135,14 +136,13 @@ function pickBotCandidate(
 
 function isDestinationInPlayArea(
   stationId: string,
-  startCoords: [number, number],
-  radiusKm: number,
+  playArea: PlayAreaConstraint,
 ): boolean {
   const station = window.SubwayBuilderAPI.gameState
     .getStations()
     .find((s) => s.id === stationId);
   if (!station) return false;
-  return haversineKm(startCoords, station.coords) <= radiusKm;
+  return haversineKm(playArea.startCoords, station.coords) <= playArea.radiusKm;
 }
 
 export function pickBotHideSpot(
@@ -197,8 +197,13 @@ export function pickBotHideSpot(
       ? INSTANT_MAX_TRAVEL_SECONDS
       : config.hideDurationHours * 3600;
 
+  const playArea: PlayAreaConstraint = {
+    startCoords: startStation.coords,
+    radiusKm: config.hideRadiusKm,
+  };
+
   const allDestinationIds = collapseStationIdsByGroup(
-    stations.filter((s) => s.id !== startStationId).map((s) => s.id),
+    inRadius.map((s) => s.id),
   );
 
   const searchStartElapsed = api.gameState.getElapsedSeconds();
@@ -209,19 +214,17 @@ export function pickBotHideSpot(
           allDestinationIds,
           maxTravelSeconds,
           searchStartElapsed,
+          playArea,
         )
       : findValidHideCandidates(
           startStationId,
           allDestinationIds,
           maxTravelSeconds,
+          playArea,
         );
 
   const candidates = reachable.filter((candidate) =>
-    isDestinationInPlayArea(
-      candidate.stationId,
-      startStation.coords,
-      config.hideRadiusKm,
-    ),
+    isDestinationInPlayArea(candidate.stationId, playArea),
   );
 
   if (candidates.length === 0) {

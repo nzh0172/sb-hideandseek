@@ -4,7 +4,7 @@ import type { Route, Station, StComboTiming } from '../types/game-state';
 import type { Coordinate } from '../types/core';
 import type { HideCandidate, PathLeg, ValidatedPath } from './types';
 import { getStationDisplayName } from './displayNames';
-import { getCurrentTimeOfDaySeconds } from './geo';
+import { getCurrentTimeOfDaySeconds, haversineKm } from './geo';
 import {
   buildDepartureIndex,
   edgeDepartureKey,
@@ -24,6 +24,22 @@ const DEFAULT_DWELL_SECONDS = 20;
 const MAX_SEARCH_EXPANSIONS = 40_000;
 /** Bucket visit times to prune duplicate search states. */
 const VISIT_TIME_BUCKET_SECONDS = 30;
+
+export interface PlayAreaConstraint {
+  startCoords: [number, number];
+  radiusKm: number;
+}
+
+function isStationInsidePlayArea(
+  stationId: string,
+  stationMap: Map<string, Station>,
+  playArea: PlayAreaConstraint | undefined,
+): boolean {
+  if (!playArea) return true;
+  const station = stationMap.get(stationId);
+  if (!station) return false;
+  return haversineKm(playArea.startCoords, station.coords) <= playArea.radiusKm;
+}
 
 let cachedStNodeMap: Map<string, string> | null = null;
 let cachedStationCount = -1;
@@ -690,6 +706,7 @@ export function findValidHideCandidates(
   startStationId: string,
   candidateStationIds: string[],
   maxTravelSeconds: number,
+  playArea?: PlayAreaConstraint,
 ): HideCandidate[] {
   const stations = api.gameState.getStations();
   const stationMap = getStationMap(stations);
@@ -785,13 +802,24 @@ export function findValidHideCandidates(
       if (!info) continue;
 
       const next = tryTraverseEdge(current, edge, info, stationMap, maxTravelSeconds);
-      if (next) heapPush(heap, next);
+      if (
+        next &&
+        isStationInsidePlayArea(next.node.stationId, stationMap, playArea)
+      ) {
+        heapPush(heap, next);
+      }
     }
 
     for (const transferNode of transfersByCanonical.get(canonStation) ?? []) {
       if (
         transferNode.routeId === current.node.routeId &&
         transferNode.stopIndex === current.node.stopIndex
+      ) {
+        continue;
+      }
+
+      if (
+        !isStationInsidePlayArea(transferNode.stationId, stationMap, playArea)
       ) {
         continue;
       }
@@ -902,6 +930,7 @@ export function findValidHideCandidatesReal(
   candidateStationIds: string[],
   maxTravelSeconds: number,
   searchStartElapsed: number,
+  playArea?: PlayAreaConstraint,
 ): HideCandidate[] {
   const stations = api.gameState.getStations();
   const stationMap = getStationMap(stations);
@@ -1007,13 +1036,24 @@ export function findValidHideCandidatesReal(
         maxTravelSeconds,
         searchStartElapsed,
       );
-      if (next) heapPushReal(heap, next);
+      if (
+        next &&
+        isStationInsidePlayArea(next.node.stationId, stationMap, playArea)
+      ) {
+        heapPushReal(heap, next);
+      }
     }
 
     for (const transferNode of transfersByCanonical.get(canonStation) ?? []) {
       if (
         transferNode.routeId === current.node.routeId &&
         transferNode.stopIndex === current.node.stopIndex
+      ) {
+        continue;
+      }
+
+      if (
+        !isStationInsidePlayArea(transferNode.stationId, stationMap, playArea)
       ) {
         continue;
       }
