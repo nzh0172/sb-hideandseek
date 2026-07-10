@@ -41,6 +41,46 @@ function isStationInsidePlayArea(
   return haversineKm(playArea.startCoords, station.coords) <= playArea.radiusKm;
 }
 
+/** True when the route is assigned to the destination stop (not just a co-located interchange). */
+function routeServesDestination(
+  routeId: string,
+  destStationId: string,
+  routeInfoById: Map<string, RouteStopInfo>,
+  stationMap: Map<string, Station>,
+): boolean {
+  const dest = stationMap.get(destStationId);
+  if (!dest) return false;
+  if (dest.routeIds.includes(routeId)) return true;
+
+  const info = routeInfoById.get(routeId);
+  const route = info?.route;
+  if (route?.stations?.some((s) => s.id === destStationId)) return true;
+  if (info?.stopStationIds.includes(destStationId)) return true;
+
+  return false;
+}
+
+/** Hide destination reached only on a route that serves that stop at this platform. */
+function isHideDestinationReached(
+  node: GraphNode,
+  destStationId: string,
+  routeInfoById: Map<string, RouteStopInfo>,
+  stationMap: Map<string, Station>,
+): boolean {
+  if (!routeServesDestination(node.routeId, destStationId, routeInfoById, stationMap)) {
+    return false;
+  }
+
+  const info = routeInfoById.get(node.routeId);
+  if (!info) return node.stationId === destStationId;
+
+  const platformId = info.stopStationIds[node.stopIndex];
+  if (!platformId) return false;
+  if (platformId === destStationId) return true;
+
+  return areSameStationGroup(platformId, destStationId);
+}
+
 let cachedStNodeMap: Map<string, string> | null = null;
 let cachedStationCount = -1;
 
@@ -780,7 +820,15 @@ export function findValidHideCandidates(
       const destStationId =
         candidateByCanonical.get(canonStation) ??
         (candidateSet.has(current.node.stationId) ? current.node.stationId : null);
-      if (destStationId) {
+      if (
+        destStationId &&
+        isHideDestinationReached(
+          current.node,
+          destStationId,
+          routeInfoById,
+          stationMap,
+        )
+      ) {
         const path = rebuildPath(current.legs, current.journeyElapsed);
         const existing = bestByStation.get(destStationId);
         if (!existing || isBetterHidePath(path, existing)) {
@@ -1010,7 +1058,15 @@ export function findValidHideCandidatesReal(
       const destStationId =
         candidateByCanonical.get(canonStation) ??
         (candidateSet.has(current.node.stationId) ? current.node.stationId : null);
-      if (destStationId) {
+      if (
+        destStationId &&
+        isHideDestinationReached(
+          current.node,
+          destStationId,
+          routeInfoById,
+          stationMap,
+        )
+      ) {
         const path = rebuildPath(current.legs, current.journeyElapsed);
         const existing = bestByStation.get(destStationId);
         if (!existing || isBetterHidePath(path, existing)) {

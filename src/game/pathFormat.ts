@@ -5,8 +5,14 @@ import {
   getRouteDisplayName,
 } from './displayNames';
 import { isSameLogicalLine } from './logicalLines';
+import { areSameStationGroup } from './stationGroups';
 import { formatGameTime } from './geo';
 import type { PathLeg, ValidatedPath } from './types';
+
+export interface RevealTimelineStop {
+  stationId: string;
+  time: number;
+}
 
 function getRouteLabel(routeId: string, fallbackBullet: string): string {
   const routes = window.SubwayBuilderAPI.gameState.getRoutes();
@@ -52,6 +58,34 @@ export function mergeLegsByRoute(legs: PathLeg[]): PathLeg[] {
   }
 
   return merged;
+}
+
+/** Start, transfer, and end stops for the reveal-phase vertical timeline. */
+export function buildRevealTimelineStops(legs: PathLeg[]): RevealTimelineStop[] {
+  const segments = mergeLegsByRoute(legs);
+  if (segments.length === 0) return [];
+
+  const stops: RevealTimelineStop[] = [];
+
+  const pushStop = (stationId: string, time: number) => {
+    const last = stops[stops.length - 1];
+    if (last && areSameStationGroup(last.stationId, stationId)) {
+      last.time = time;
+      return;
+    }
+    stops.push({ stationId, time });
+  };
+
+  pushStop(segments[0]!.fromStationId, segments[0]!.departureTime);
+
+  for (let i = 1; i < segments.length; i++) {
+    pushStop(segments[i]!.fromStationId, segments[i]!.departureTime);
+  }
+
+  const last = segments[segments.length - 1]!;
+  pushStop(last.toStationId, last.arrivalTime);
+
+  return stops;
 }
 
 export function formatValidatedPathText(path: ValidatedPath): string {

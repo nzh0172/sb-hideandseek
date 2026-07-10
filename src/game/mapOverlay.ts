@@ -16,8 +16,10 @@ import {
 import { getSession, subscribeOverlay } from './session';
 import {
   getAutoZoomValidRegionEnabled as getAutoZoomPref,
+  getRevealPathOnMapEnabled,
   setAutoZoomValidRegionEnabled as setAutoZoomPref,
   setLinePickerRouteId,
+  setRevealPathOnMapEnabled,
 } from './seekingPreferences';
 import {
   buildDeductionMaskAndOutlines,
@@ -383,7 +385,9 @@ export function isRevealPathVisible(): boolean {
 }
 
 export function setRevealPathVisible(visible: boolean): void {
+  if (revealPathVisible === visible) return;
   revealPathVisible = visible;
+  setRevealPathOnMapEnabled(visible);
   refreshDeductionOverlay();
 }
 
@@ -1082,7 +1086,7 @@ export function clearDeductionOverlay(): void {
   lastSyncedSetupStationId = null;
   lastSyncedPickerStationId = null;
   lastAutoZoomKey = null;
-  revealPathVisible = true;
+  revealPathVisible = getRevealPathOnMapEnabled();
   revealDeductionVisible = true;
   seekingPickerStationId = null;
   seekingPickerRouteId = null;

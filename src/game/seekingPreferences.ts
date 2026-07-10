@@ -3,6 +3,15 @@
 let lineHighlightEnabled = false;
 let linePickerRouteId: string | null = null;
 let autoZoomValidRegionEnabled = true;
+let revealPathOnMapEnabled = true;
+
+export function getRevealPathOnMapEnabled(): boolean {
+  return revealPathOnMapEnabled;
+}
+
+export function setRevealPathOnMapEnabled(enabled: boolean): void {
+  revealPathOnMapEnabled = enabled;
+}
 
 export function getSeekingLineHighlightEnabled(): boolean {
   return lineHighlightEnabled;

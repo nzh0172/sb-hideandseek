@@ -110,8 +110,8 @@ export function LineBulletRow({
         verticalAlign: 'middle',
       }}
     >
-      {bullets.map((bullet, index) => (
-        <LineBullet key={index} bullet={bullet} size={size} />
+      {bullets.map((bullet) => (
+        <LineBullet key={bullet.routeId} bullet={bullet} size={size} />
       ))}
     </span>
   );
