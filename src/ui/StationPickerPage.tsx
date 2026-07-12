@@ -38,6 +38,8 @@ interface StationPickerPageProps {
   highlightOnMap?: boolean;
   /** Optional actions rendered below the station list. */
   footer?: React.ReactNode;
+  /** Optional content above the footer (e.g. question log). */
+  belowList?: React.ReactNode;
 }
 
 function RouteListItem({
@@ -131,6 +133,7 @@ export function StationPickerPage({
   pinnedLabel = 'Starting station',
   highlightOnMap = false,
   footer,
+  belowList,
 }: StationPickerPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogVersion, setCatalogVersion] = useState(0);
@@ -302,7 +305,7 @@ export function StationPickerPage({
                 </div>
                 <StationListItem
                   stationId={pinnedStationId}
-                  selected={areSameStationGroup(pinnedStationId, value)}
+                  selected={Boolean(value) && areSameStationGroup(pinnedStationId, value)}
                   onPick={() => pickStation(pinnedStationId)}
                   onHover={() => stationHoverHandlers.onHover?.(pinnedStationId)}
                   onHoverEnd={stationHoverHandlers.onHoverEnd}
@@ -326,7 +329,7 @@ export function StationPickerPage({
               <StationListItem
                 key={station.id}
                 stationId={station.id}
-                selected={areSameStationGroup(station.id, value)}
+                selected={Boolean(value) && areSameStationGroup(station.id, value)}
                 onPick={() => pickStation(station.id)}
                 onHover={() => stationHoverHandlers.onHover?.(station.id)}
                 onHoverEnd={stationHoverHandlers.onHoverEnd}
@@ -336,6 +339,7 @@ export function StationPickerPage({
         </div>
       )}
 
+      {belowList ? <div className="flex flex-col gap-2">{belowList}</div> : null}
       {footer ? <div className="flex flex-col gap-2">{footer}</div> : null}
     </div>
   );

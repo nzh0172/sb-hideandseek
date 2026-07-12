@@ -9,15 +9,17 @@ interface LabeledButtonProps {
   label: string;
   onClick: () => void;
   variant?: 'default' | 'secondary' | 'outline' | 'ghost' | 'destructive';
+  style?: React.CSSProperties;
 }
 
 export function LabeledButton({
   label,
   onClick,
   variant = 'secondary',
+  style,
 }: LabeledButtonProps) {
   return (
-    <Button variant={variant} onClick={onClick}>
+    <Button variant={variant} onClick={onClick} style={style}>
       <ForceText text={label} />
     </Button>
   );

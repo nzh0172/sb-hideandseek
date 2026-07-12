@@ -22,12 +22,12 @@ import { ForceText } from './ForceText';
 import { LabeledButton } from './LabeledButton';
 import { LinePickerPage } from './LinePickerPage';
 import { QuestionLog } from './QuestionLog';
-import { RoundStartInfo } from './RoundStartInfo';
+import { SeekingPathHeader } from './SeekingPathHeader';
 import { StationLabel } from './StationLabel';
 import { StationPickerPage } from './StationPickerPage';
 import { useSession } from './useSession';
 
-const { Button, Label, Switch } = window.SubwayBuilderAPI.utils.components as Record<
+const { Button } = window.SubwayBuilderAPI.utils.components as Record<
   string,
   React.ComponentType<any>
 >;
@@ -35,7 +35,54 @@ const { Button, Label, Switch } = window.SubwayBuilderAPI.utils.components as Re
 const DISTANCE_OPTIONS = [1, 2, 5, 10, 20];
 const DIRECTION_OPTIONS: CardinalDirection[] = ['north', 'south', 'east', 'west'];
 
+const SEEK_BG = '#0a0a0a';
+const SEEK_MUTED = 'rgba(255,255,255,0.65)';
+const WHITE_BTN = {
+  backgroundColor: '#ffffff',
+  color: '#111827',
+  borderColor: '#e5e7eb',
+  flexShrink: 0,
+} as const;
+const SECONDARY_BTN = {
+  backgroundColor: '#3f3f46',
+  color: '#ffffff',
+  borderColor: '#52525b',
+} as const;
+
 type PickerTarget = 'ref' | 'guess' | 'line' | null;
+
+function StatusPill({
+  text,
+  backgroundColor,
+}: {
+  text: string;
+  backgroundColor: string;
+}) {
+  return (
+    <div
+      style={{
+        backgroundColor,
+        color: '#ffffff',
+        borderRadius: 999,
+        padding: '5px 14px',
+        fontSize: '13px',
+        fontWeight: 600,
+      }}
+    >
+      <ForceText text={text} />
+    </div>
+  );
+}
+
+function SectionLabel({ text }: { text: string }) {
+  return (
+    <ForceText
+      text={text}
+      as="div"
+      style={{ fontSize: '12px', color: SEEK_MUTED, fontWeight: 500 }}
+    />
+  );
+}
 
 export function SeekingPhase() {
   const session = useSession();
@@ -45,9 +92,8 @@ export function SeekingPhase() {
       ? getGroupRepresentative(session.startStationId)
       : (stations[0]?.id ?? '');
   const [refStationId, setRefStationId] = useState(defaultRefId);
-  const [guessId, setGuessId] = useState(stations[0]?.id ?? '');
+  const [guessId, setGuessId] = useState('');
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
-  const [autoZoomValidRegion, setAutoZoomValidRegion] = useState(getAutoZoomValidRegionEnabled);
 
   useEffect(() => {
     setAutoZoomValidRegionEnabled(getAutoZoomValidRegionEnabled());
@@ -56,6 +102,11 @@ export function SeekingPhase() {
   const startStationId = session.startStationId
     ? getGroupRepresentative(session.startStationId)
     : null;
+
+  const roundLabel =
+    session.currentRound > 0
+      ? `Round ${session.currentRound} of ${session.config.totalRounds}`
+      : null;
 
   if (pickerTarget === 'ref') {
     return (
@@ -87,13 +138,22 @@ export function SeekingPhase() {
           clearSeekingPickerHighlight();
           setPickerTarget(null);
         }}
+        belowList={<QuestionLog entries={session.queryLog} />}
         footer={
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => guessStation(guessId)}>Submit Guess</Button>
-            <Button variant="destructive" onClick={giveUp}>
-              Give Up
+            <Button
+              disabled={!guessId}
+              onClick={() => {
+                if (!guessId) return;
+                guessStation(guessId);
+              }}
+            >
+              <ForceText text="Submit Guess" />
             </Button>
-            {session.startStationId && (
+            <Button variant="destructive" onClick={giveUp}>
+              <ForceText text="Give Up" />
+            </Button>
+            {(session.playAreaStationId || session.startStationId) && (
               <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
                 <ForceText text="View play area" />
               </Button>
@@ -121,50 +181,57 @@ export function SeekingPhase() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <RoundStartInfo session={session} />
-
-      <p className="text-sm" style={{ opacity: 0.75 }}>
-        Ask questions to narrow down the hider. Wrong guesses: {session.guessCount}
-      </p>
-      <p className="text-xs" style={{ opacity: 0.65 }}>
-        Map dims ruled-out areas. The purple circle is the play area; questions
-        narrow the bright region inside it.
-      </p>
-
-      {/* <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="auto-zoom-valid-region">Zoom to remaining area</Label>
-          <Switch
-            id="auto-zoom-valid-region"
-            checked={autoZoomValidRegion}
-            onCheckedChange={(checked: boolean) => {
-              setAutoZoomValidRegion(checked);
-              setAutoZoomValidRegionEnabled(checked);
-            }}
-          />
-        </div>
-        <ForceText
-          text="When on, the map recenters on the bright region after each question."
-          style={{ fontSize: '11px', opacity: 0.65 }}
+    <div
+      style={{
+        backgroundColor: SEEK_BG,
+        color: '#ffffff',
+        borderRadius: 12,
+        padding: '18px 16px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 18,
+        width: '100%',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        {roundLabel && (
+          <StatusPill text={roundLabel} backgroundColor="#2563eb" />
+        )}
+        <StatusPill
+          text={`Wrong guess: ${session.guessCount}`}
+          backgroundColor="#ef4444"
         />
-      </div> */}
+      </div>
+
+      <SeekingPathHeader
+        startStationId={startStationId}
+        startTimeSeconds={session.hideStartElapsed}
+        guessStationId={guessId || null}
+        onGuessClick={() => setPickerTarget('guess')}
+      />
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">Reference station</span>
+        <SectionLabel text="Reference station" />
         <div className="flex items-center gap-2">
           {refStationId ? (
             <StationLabel
               stationId={refStationId}
               style={{ flex: 1, minWidth: 0, fontSize: '0.875rem' }}
-              nameStyle={{ fontSize: '0.875rem' }}
+              nameStyle={{ fontSize: '0.875rem', color: '#ffffff' }}
               bulletSize={16}
             />
           ) : (
             <ForceText
               text="Pick a station"
               className="text-sm"
-              style={{ flex: 1, minWidth: 0 }}
+              style={{ flex: 1, minWidth: 0, color: SEEK_MUTED }}
             />
           )}
           {startStationId && (
@@ -173,12 +240,7 @@ export function SeekingPhase() {
               variant="outline"
               size="sm"
               onClick={() => setRefStationId(startStationId)}
-              style={{
-                backgroundColor: '#ffffff',
-                color: '#111827',
-                borderColor: 'rgba(128,128,128,0.45)',
-                flexShrink: 0,
-              }}
+              style={WHITE_BTN}
             >
               <ForceText text="Starting station" />
             </Button>
@@ -188,12 +250,7 @@ export function SeekingPhase() {
             variant="outline"
             size="sm"
             onClick={() => setPickerTarget('ref')}
-            style={{
-              backgroundColor: '#ffffff',
-              color: '#111827',
-              borderColor: 'rgba(128,128,128,0.45)',
-              flexShrink: 0,
-            }}
+            style={WHITE_BTN}
           >
             <ForceText text="Change" />
           </Button>
@@ -201,81 +258,64 @@ export function SeekingPhase() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">Distance from reference</span>
+        <SectionLabel text="Distance from reference" />
         <div className="flex flex-wrap gap-1">
-          {DISTANCE_OPTIONS.map((km, index) => (
+          {DISTANCE_OPTIONS.map((km) => (
             <LabeledButton
-              key={index}
+              key={`dist-${km}`}
               label={`≤ ${km} km`}
               onClick={() => queryWithinKmFromStation(refStationId, km)}
+              style={SECONDARY_BTN}
             />
           ))}
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">Direction from reference</span>
+        <SectionLabel text="Direction from reference" />
         <div className="flex flex-wrap gap-1">
-          {DIRECTION_OPTIONS.map((direction, index) => (
+          {DIRECTION_OPTIONS.map((direction) => (
             <LabeledButton
-              key={index}
+              key={`dir-${direction}`}
               label={direction.charAt(0).toUpperCase() + direction.slice(1)}
               onClick={() => queryDirectionFromStation(refStationId, direction)}
+              style={SECONDARY_BTN}
             />
           ))}
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium">Line check</span>
-        <Button variant="secondary" onClick={() => setPickerTarget('line')}>
+        <SectionLabel text="Line check" />
+        <Button
+          variant="secondary"
+          onClick={() => setPickerTarget('line')}
+          style={{ ...SECONDARY_BTN, width: '100%' }}
+        >
           <ForceText text="Select line" />
         </Button>
-      </div>
-
-      <div className="flex flex-wrap gap-1">
-        <Button variant="secondary" onClick={queryTransferCount}>
-          Transfer count
-        </Button>
-        <Button variant="secondary" onClick={querySameLineAsStart}>
-          Same line as start?
-        </Button>
-      </div>
-
-      <QuestionLog entries={session.queryLog} />
-
-      <div className="flex flex-col gap-1 border-t pt-3">
-        <Label htmlFor="guess-station">Guess station</Label>
-        <div className="flex items-center gap-2">
-          {guessId ? (
-            <StationLabel
-              stationId={guessId}
-              style={{ flex: 1, minWidth: 0, fontSize: '0.875rem' }}
-              nameStyle={{ fontSize: '0.875rem' }}
-              bulletSize={16}
-            />
-          ) : (
-            <ForceText
-              text="Pick a station"
-              className="text-sm"
-              style={{ flex: 1, minWidth: 0 }}
-            />
-          )}
+        <div className="flex flex-wrap gap-1">
           <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setPickerTarget('guess')}
-            style={{
-              backgroundColor: '#ffffff',
-              color: '#111827',
-              borderColor: 'rgba(128,128,128,0.45)',
-            }}
+            variant="secondary"
+            onClick={queryTransferCount}
+            style={{ ...SECONDARY_BTN, flex: '1 1 0' }}
           >
-            <ForceText text="Change" />
+            <ForceText text="Transfer count" />
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={querySameLineAsStart}
+            style={{ ...SECONDARY_BTN, flex: '1 1 0' }}
+          >
+            <ForceText text="Same line as start?" />
           </Button>
         </div>
       </div>
+
+      <QuestionLog
+        entries={session.queryLog}
+      />
+
     </div>
   );
 }

@@ -48,7 +48,7 @@ function bulletShellStyle(
     return {
       ...base,
       borderRadius: 999,
-      minWidth: Math.max(size, size + padX * 2),
+      minWidth: Math.max(size, size + padX * 1.5),
     };
   }
 
@@ -94,19 +94,28 @@ export function LineBullet({ bullet, size = 18 }: LineBulletProps) {
 export function LineBulletRow({
   bullets,
   size = 18,
+  align = 'start',
 }: {
   bullets: RouteBulletMeta[];
   size?: number;
+  /** Center wrapped rows (seeking path header only). Default stays inline with the name. */
+  align?: 'start' | 'center' | 'end';
 }) {
   if (bullets.length === 0) return null;
+
+  const centered = align === 'center';
 
   return (
     <span
       style={{
-        display: 'inline-flex',
+        display: centered ? 'flex' : 'inline-flex',
         alignItems: 'center',
+        justifyContent:
+          align === 'center' ? 'center' : align === 'end' ? 'flex-end' : 'flex-start',
         gap: 4,
         flexWrap: 'wrap',
+        width: centered ? '100%' : undefined,
+        maxWidth: centered ? '100%' : undefined,
         verticalAlign: 'middle',
       }}
     >

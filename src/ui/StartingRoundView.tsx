@@ -4,7 +4,7 @@ import { ForceText } from './ForceText';
 import type { GameMode } from '../game/types';
 
 const MESSAGES: Record<GameMode, string> = {
-  instant: 'Finding a hide spot…',
+  instant: 'Hiding…',
   live: 'Planning the hider’s route…',
 };
 

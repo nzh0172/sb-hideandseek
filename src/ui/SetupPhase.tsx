@@ -54,13 +54,13 @@ const MODE_OPTIONS: { id: GameMode; label: string; description: string }[] = [
     id: 'instant',
     label: 'Quick seek',
     description:
-      'Synthetic timetable — no hide timer. Start deducing immediately after the round begins.',
+      'Hider are not bound by time limit and can move around the map freely. You can start deducing immediately after the round begins.',
   },
   {
     id: 'live',
     label: 'Live',
     description:
-      'The hider travels on real running trains. Simulation runs during hide time, then you seek.',
+      'The hider travels on real running trains and real time schedule. Simulation runs during hide time, then you seek.',
   },
 ];
 
@@ -134,10 +134,10 @@ export function SetupPhase() {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">
+      {/* <p className="text-sm text-muted-foreground">
         Pick a mode and starting station — the bot hides somewhere reachable by train
         within your play area{isLive ? ' and hide time' : ''}.
-      </p>
+      </p> */}
 
       <div className="flex flex-col gap-2">
         <Label>Game mode</Label>
@@ -253,8 +253,7 @@ export function SetupPhase() {
           }}
         />
         <p className="text-xs text-muted-foreground">
-          Play area is set once. After each round, the next starts from that round's
-          hide station.
+          Play area is set once. The subsequent rounds start from last round's hiding station.
         </p>
       </div>
 
