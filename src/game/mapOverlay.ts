@@ -8,7 +8,7 @@ import {
   type RouteBulletMeta,
 } from './displayNames';
 import { getRouteStationLineCoords } from './scheduleGraph';
-import { circlePolygonRing } from './geo';
+import { circlePolygonRing, destinationPointKm } from './geo';
 import {
   buildRevealPathMapFeatures,
   type RevealPathBulletFeature,
@@ -1100,4 +1100,272 @@ export function clearDeductionOverlay(): void {
   clearDomOverlays();
   const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
   source?.setData(EMPTY_FC);
+}
+
+/** Random offset so the peek is near the hide, not exactly centered on it. */
+const MAP_PEEK_JITTER_MIN_KM = 0.08;
+const MAP_PEEK_JITTER_MAX_KM = 0.22;
+/**
+ * Peek framing radius (~1/3 of the old 1.25 km view ≈ 300% zoom-in).
+ * Paired with a high maxZoom for street-level detail at the station.
+ */
+const MAP_PEEK_VIEW_RADIUS_KM = 0.42;
+const MAP_PEEK_MAX_ZOOM = 90;
+
+const MAP_CAPTURE_VEIL_ATTR = 'data-hide-seek-capture-veil';
+
+/** Layer ids / labels to hide during map peek (matched against getAvailableLayers). */
+const MAP_PEEK_HIDE_LAYER_NEEDLES = [
+  'route',
+  'routes',
+  'trackbase',
+  'track base',
+  'stationplatform',
+  'station platform',
+  'stationplatforms',
+  'station platforms',
+];
+
+function normalizeLayerId(id: string): string {
+  return id.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function compactLayerId(id: string): string {
+  return normalizeLayerId(id).replace(/\s+/g, '');
+}
+
+function resolvePeekLayersToHide(): string[] {
+  let available: string[] = [];
+  try {
+    available = api.ui.getAvailableLayers();
+  } catch {
+    available = [];
+  }
+
+  if (available.length === 0) {
+    // Fallbacks if the UI API list is empty.
+    return ['routes', 'trackBase', 'stationPlatform', 'stations'];
+  }
+
+  return available.filter((id) => {
+    const compact = compactLayerId(id);
+    const spaced = normalizeLayerId(id);
+    return MAP_PEEK_HIDE_LAYER_NEEDLES.some((needle) => {
+      const n = needle.replace(/\s+/g, '');
+      if (compact === n) return true;
+      // Prefer exact-ish matches; "route" should not match "autoroute".
+      if (needle.includes(' ')) return spaced === needle;
+      if (needle === 'route') return compact === 'route' || compact === 'routes';
+      return compact === n;
+    });
+  });
+}
+
+function hidePeekMapLayers(): Record<string, boolean> {
+  const previous: Record<string, boolean> = {};
+  const toHide = resolvePeekLayersToHide();
+
+  for (const layerId of toHide) {
+    try {
+      previous[layerId] = api.ui.getLayerVisibility(layerId);
+      if (previous[layerId]) api.ui.setLayerVisibility(layerId, false);
+    } catch {
+      // Layer may not exist in this build.
+    }
+  }
+
+  return previous;
+}
+
+function restorePeekMapLayers(previous: Record<string, boolean>): void {
+  try {
+    api.ui.setMultipleLayerVisibility(previous);
+  } catch {
+    for (const [layerId, visible] of Object.entries(previous)) {
+      try {
+        api.ui.setLayerVisibility(layerId, visible);
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+function waitForMapIdle(map: MapLibreMap, timeoutMs = 2800): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    map.once('idle', finish);
+    window.setTimeout(finish, timeoutMs);
+  });
+}
+
+function showMapCaptureVeil(): void {
+  const map = mapRef ?? api.utils.getMap();
+  if (!map) return;
+  const container = map.getContainer();
+  if (container.querySelector(`[${MAP_CAPTURE_VEIL_ATTR}]`)) return;
+
+  const veil = document.createElement('div');
+  veil.setAttribute(MAP_CAPTURE_VEIL_ATTR, '');
+  Object.assign(veil.style, {
+    position: 'absolute',
+    inset: '0',
+    background: 'rgba(0,0,0,0.92)',
+    zIndex: '10000',
+    pointerEvents: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'column',
+    gap: '10px',
+  });
+
+  const spinner = document.createElement('div');
+  Object.assign(spinner.style, {
+    width: '28px',
+    height: '28px',
+    border: '3px solid rgba(255,255,255,0.25)',
+    borderTopColor: '#ffffff',
+    borderRadius: '50%',
+    animation: 'hide-seek-spin 0.8s linear infinite',
+  });
+
+  if (!document.getElementById('hide-seek-spin-style')) {
+    const style = document.createElement('style');
+    style.id = 'hide-seek-spin-style';
+    style.textContent =
+      '@keyframes hide-seek-spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+  }
+
+  const label = document.createElement('div');
+  label.textContent = 'Capturing map…';
+  Object.assign(label.style, {
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: '600',
+  });
+
+  veil.appendChild(spinner);
+  veil.appendChild(label);
+  container.appendChild(veil);
+}
+
+function hideMapCaptureVeil(): void {
+  const map = mapRef ?? api.utils.getMap();
+  const container = map?.getContainer();
+  container
+    ?.querySelectorAll(`[${MAP_CAPTURE_VEIL_ATTR}]`)
+    .forEach((node) => node.remove());
+}
+
+/**
+ * Capture during the WebGL present — required when preserveDrawingBuffer is off.
+ */
+function captureMapCanvas(map: MapLibreMap): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    map.once('render', () => {
+      try {
+        const dataUrl = map.getCanvas().toDataURL('image/jpeg', 0.85);
+        // Reject empty / nearly-empty captures (blank buffer).
+        finish(dataUrl.length > 8000 ? dataUrl : null);
+      } catch (err) {
+        console.error('[HideAndSeek] Map peek capture failed:', err);
+        finish(null);
+      }
+    });
+    map.triggerRepaint();
+    window.setTimeout(() => finish(null), 1500);
+  });
+}
+
+/**
+ * Capture a JPEG of the basemap near the hide station (jittered center).
+ * Hides route/track/platform layers, shows a loading veil, then restores.
+ */
+export async function captureMapNearHide(): Promise<string | null> {
+  const session = getSession();
+  if (!session.hideStationId) return null;
+
+  const hideStation = api.gameState
+    .getStations()
+    .find((s) => s.id === session.hideStationId);
+  if (!hideStation) return null;
+
+  const map = mapRef ?? api.utils.getMap();
+  if (!map) return null;
+
+  const jitterKm =
+    MAP_PEEK_JITTER_MIN_KM +
+    Math.random() * (MAP_PEEK_JITTER_MAX_KM - MAP_PEEK_JITTER_MIN_KM);
+  const center = destinationPointKm(
+    hideStation.coords,
+    Math.random() * 360,
+    jitterKm,
+  );
+
+  const previous = {
+    center: map.getCenter(),
+    zoom: map.getZoom(),
+    bearing: map.getBearing(),
+    pitch: map.getPitch(),
+  };
+
+  showMapCaptureVeil();
+  const previousLayers = hidePeekMapLayers();
+
+  try {
+    const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
+    source?.setData(EMPTY_FC);
+    clearDomOverlays();
+
+    const ring = circlePolygonRing(center, MAP_PEEK_VIEW_RADIUS_KM);
+    let minLon = Infinity;
+    let minLat = Infinity;
+    let maxLon = -Infinity;
+    let maxLat = -Infinity;
+    for (const [lon, lat] of ring) {
+      minLon = Math.min(minLon, lon);
+      minLat = Math.min(minLat, lat);
+      maxLon = Math.max(maxLon, lon);
+      maxLat = Math.max(maxLat, lat);
+    }
+
+    map.stop();
+    map.fitBounds(
+      [
+        [minLon, minLat],
+        [maxLon, maxLat],
+      ],
+      { padding: 8, duration: 0, maxZoom: MAP_PEEK_MAX_ZOOM },
+    );
+
+    await waitForMapIdle(map);
+    const dataUrl = await captureMapCanvas(map);
+
+    map.jumpTo({
+      center: previous.center,
+      zoom: previous.zoom,
+      bearing: previous.bearing,
+      pitch: previous.pitch,
+    });
+    refreshDeductionOverlay({ allowZoom: false });
+
+    return dataUrl;
+  } finally {
+    restorePeekMapLayers(previousLayers);
+    hideMapCaptureVeil();
+  }
 }

@@ -10,7 +10,11 @@ import {
 } from './deduction';
 import { areSameStationGroup, getGroupRepresentative, getRouteDisplayName, getStationDisplayNameById } from './displayNames';
 import { formatCardinalDirection, haversineKm, isCardinalDirectionOf } from './geo';
-import { clearDeductionOverlay, refreshDeductionOverlay } from './mapOverlay';
+import {
+  captureMapNearHide,
+  clearDeductionOverlay,
+  refreshDeductionOverlay,
+} from './mapOverlay';
 import {
   getPlayableRoutes,
   isSameLineWithoutTransfer,
@@ -207,6 +211,30 @@ export function querySameLineAsStart(): void {
     answer: same ? 'Yes' : 'No',
   });
   applySameLineAsStart(same);
+}
+
+/** Capture a map snapshot near the hide (jittered) and add it to the question log. */
+export async function queryMapNearHide(): Promise<boolean> {
+  const session = getSession();
+  if (!session.hideStationId) return false;
+
+  api.ui.showNotification('Capturing map near the hide…', 'info');
+  const imageDataUrl = await captureMapNearHide();
+
+  if (!imageDataUrl) {
+    api.ui.showNotification(
+      'Could not capture the map. Try again in a moment.',
+      'warning',
+    );
+    return false;
+  }
+
+  addQueryLog({
+    question: 'Map near the hide?',
+    answer: 'See peek below',
+    imageDataUrl,
+  });
+  return true;
 }
 
 /** True when more rounds remain in the current series after reveal. */

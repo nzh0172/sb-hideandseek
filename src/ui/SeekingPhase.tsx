@@ -7,6 +7,7 @@ import {
   giveUp,
   guessStation,
   queryDirectionFromStation,
+  queryMapNearHide,
   queryOnLine,
   querySameLineAsStart,
   queryTransferCount,
@@ -82,10 +83,21 @@ export function SeekingPhase() {
   const [refStationId, setRefStationId] = useState(defaultRefId);
   const [guessId, setGuessId] = useState('');
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
+  const [mapPeekBusy, setMapPeekBusy] = useState(false);
 
   useEffect(() => {
     setAutoZoomValidRegionEnabled(getAutoZoomValidRegionEnabled());
   }, []);
+
+  useEffect(() => {
+    if (!mapPeekBusy) return;
+    if (document.getElementById('hide-seek-spin-style')) return;
+    const style = document.createElement('style');
+    style.id = 'hide-seek-spin-style';
+    style.textContent =
+      '@keyframes hide-seek-spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+  }, [mapPeekBusy]);
 
   const startStationId = session.startStationId
     ? getGroupRepresentative(session.startStationId)
@@ -184,8 +196,42 @@ export function SeekingPhase() {
         flexDirection: 'column',
         gap: 18,
         width: '100%',
+        position: 'relative',
       }}
     >
+      {mapPeekBusy && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 20,
+            background: 'rgba(0,0,0,1)',
+            borderRadius: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            pointerEvents: 'all',
+          }}
+        >
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              border: '3px solid rgba(255,255,255,0.25)',
+              borderTopColor: '#ffffff',
+              borderRadius: '50%',
+              animation: 'hide-seek-spin 0.8s linear infinite',
+            }}
+          />
+          <ForceText
+            text="Capturing map…"
+            style={{ color: '#ffffff', fontSize: '14px', fontWeight: 600 }}
+          />
+        </div>
+      )}
+
       <div
         style={{
           display: 'flex',
@@ -297,6 +343,18 @@ export function SeekingPhase() {
             <ForceText text="Same line as start?" />
           </Button>
         </div>
+        <Button
+          variant="secondary"
+          disabled={mapPeekBusy}
+          onClick={() => {
+            if (mapPeekBusy) return;
+            setMapPeekBusy(true);
+            void queryMapNearHide().finally(() => setMapPeekBusy(false));
+          }}
+          style={{ width: '100%' }}
+        >
+          <ForceText text={mapPeekBusy ? 'Capturing map…' : 'Photo of your station surroundings'} />
+        </Button>
       </div>
 
       <QuestionLog entries={session.queryLog} />

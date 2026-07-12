@@ -34,6 +34,8 @@ export interface QueryLogEntry {
   question: string;
   answer: string;
   timestamp: number;
+  /** Optional map snapshot (e.g. peek near hide). */
+  imageDataUrl?: string;
 }
 
 export type MapOverlayKind = 'distance-circle' | 'route-line' | 'half-plane';
