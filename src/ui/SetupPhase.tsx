@@ -6,14 +6,19 @@ import { getPlayableRoutes } from '../game/scheduleGraph';
 import {
   clampDurationHours,
   clampRadiusKm,
+  clampTotalRounds,
   DURATION_MAX_HOURS,
   DURATION_MIN_HOURS,
   DURATION_STEP_HOURS,
   formatHideHours,
   formatRadiusKm,
+  formatTotalRounds,
   RADIUS_MAX_KM,
   RADIUS_MIN_KM,
   RADIUS_STEP_KM,
+  ROUNDS_MAX,
+  ROUNDS_MIN,
+  ROUNDS_STEP,
 } from '../game/configScale';
 import {
   compareStationLabels,
@@ -115,7 +120,16 @@ export function SetupPhase() {
   };
 
   if (isStarting) {
-    return <StartingRoundView mode={mode} />;
+    return (
+      <StartingRoundView
+        mode={mode}
+        roundLabel={
+          session.config.totalRounds > 1
+            ? `Round 1 of ${session.config.totalRounds}`
+            : null
+        }
+      />
+    );
   }
 
   return (
@@ -217,6 +231,33 @@ export function SetupPhase() {
 
 
 
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="total-rounds">Rounds</Label>
+          <ForceText
+            text={formatTotalRounds(session.config.totalRounds)}
+            className="text-sm tabular-nums"
+          />
+        </div>
+        <Slider
+          id="total-rounds"
+          min={ROUNDS_MIN}
+          max={ROUNDS_MAX}
+          step={ROUNDS_STEP}
+          value={[session.config.totalRounds]}
+          onValueChange={(values: number[]) => {
+            setGameConfig({
+              ...session.config,
+              totalRounds: clampTotalRounds(values[0] ?? session.config.totalRounds),
+            });
+          }}
+        />
+        <p className="text-xs text-muted-foreground">
+          Play area is set once. After each round, the next starts from that round's
+          hide station.
+        </p>
+      </div>
+
       <div className="flex flex-col gap-1">
         <StationPickerPage
           value={selectedId}
@@ -241,7 +282,9 @@ export function SetupPhase() {
           disabled={!canStart || !selectedId || stations.length === 0 || isStarting}
           onClick={handleStartRound}
         >
-          Start Round
+          <ForceText
+            text={session.config.totalRounds > 1 ? 'Start Game' : 'Start Round'}
+          />
         </Button>
 
         <Button

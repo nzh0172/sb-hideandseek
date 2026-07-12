@@ -31,9 +31,18 @@ import type { CardinalDirection } from './types';
 
 const api = window.SubwayBuilderAPI;
 
-export function startRound(startStationId: string): boolean {
+export function startRound(
+  startStationId: string,
+  options?: { round?: number },
+): boolean {
   const session = getSession();
-  const outcome = pickBotHideSpot(startStationId, session.config);
+  const currentRound = options?.round ?? 1;
+  const playAreaStationId =
+    currentRound > 1 && session.playAreaStationId
+      ? session.playAreaStationId
+      : startStationId;
+
+  const outcome = pickBotHideSpot(startStationId, session.config, playAreaStationId);
 
   if (!outcome.ok) {
     api.ui.showNotification(outcome.message, 'warning');
@@ -57,6 +66,8 @@ export function startRound(startStationId: string): boolean {
       outcome.allCandidates.map((c) => [c.stationId, c.path]),
     ),
     phase: isLive ? 'hiding' : 'seeking',
+    currentRound,
+    playAreaStationId,
   });
 
   clearDeductionOverlay();
@@ -198,14 +209,45 @@ export function querySameLineAsStart(): void {
   applySameLineAsStart(same);
 }
 
-export function newRound(): void {
+/** True when more rounds remain in the current series after reveal. */
+export function hasNextRound(): boolean {
+  const session = getSession();
+  return session.currentRound > 0 && session.currentRound < session.config.totalRounds;
+}
+
+/** Start the next round from the previous hide station, or return to setup. */
+export function nextRound(): void {
   const session = getSession();
   const nextStartStationId = session.hideStationId
     ? getGroupRepresentative(session.hideStationId)
-    : null;
+    : session.startStationId;
+
+  if (!hasNextRound() || !nextStartStationId) {
+    finishSeries(nextStartStationId);
+    return;
+  }
+
+  const round = session.currentRound + 1;
+  clearDeductionOverlay();
+  const ok = startRound(nextStartStationId, { round });
+  if (!ok) {
+    resetForNewRound(nextStartStationId);
+    refreshDeductionOverlay();
+  }
+}
+
+/** End the series and return to setup, carrying the last hide as the start pick. */
+export function finishSeries(nextStartStationId?: string | null): void {
+  const session = getSession();
+  const startId =
+    nextStartStationId !== undefined
+      ? nextStartStationId
+      : session.hideStationId
+        ? getGroupRepresentative(session.hideStationId)
+        : session.startStationId;
 
   clearDeductionOverlay();
-  resetForNewRound(nextStartStationId);
+  resetForNewRound(startId);
   refreshDeductionOverlay();
 }
 
@@ -227,6 +269,15 @@ export function validateSessionIntegrity(): void {
     !stationIds.has(session.startStationId)
   ) {
     // api.ui.showNotification('Starting station was removed. Round cancelled.', 'warning');
+    clearDeductionOverlay();
+    resetSession();
+    return;
+  }
+
+  if (
+    session.playAreaStationId &&
+    !stationIds.has(session.playAreaStationId)
+  ) {
     clearDeductionOverlay();
     resetSession();
     return;

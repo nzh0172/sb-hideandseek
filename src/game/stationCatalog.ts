@@ -68,12 +68,19 @@ export function buildStationCatalog(allowedStations: Station[]): RouteCatalogEnt
 export function findRouteIdForStation(
   catalog: RouteCatalogEntry[],
   stationId: string,
+  preferredRouteId?: string,
 ): string {
   const rep = getGroupRepresentative(stationId);
+  const onRoute = (entry: RouteCatalogEntry) =>
+    entry.stationIds.some((id) => getGroupRepresentative(id) === rep);
+
+  if (preferredRouteId) {
+    const preferred = catalog.find((e) => e.routeId === preferredRouteId);
+    if (preferred && onRoute(preferred)) return preferredRouteId;
+  }
+
   for (const entry of catalog) {
-    if (entry.stationIds.some((id) => getGroupRepresentative(id) === rep)) {
-      return entry.routeId;
-    }
+    if (onRoute(entry)) return entry.routeId;
   }
   return catalog[0]?.routeId ?? OTHER_ROUTE_ID;
 }

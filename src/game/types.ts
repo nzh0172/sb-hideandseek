@@ -58,18 +58,26 @@ export interface GameConfig {
   mode: GameMode;
   hideRadiusKm: number;
   hideDurationHours: number;
+  /** How many rounds to play with the same play-area setup. */
+  totalRounds: number;
 }
 
 export const DEFAULT_CONFIG: GameConfig = {
   mode: 'instant',
   hideRadiusKm: 10,
   hideDurationHours: 3,
+  totalRounds: 3,
 };
 
 export interface HideSeekSession {
   phase: GamePhase;
   config: GameConfig;
   startStationId: string | null;
+  /**
+   * Fixed play-area center for the whole series (first round's start).
+   * Unchanged on later rounds even when startStationId moves to the previous hide.
+   */
+  playAreaStationId: string | null;
   hideStationId: string | null;
   validatedPath: ValidatedPath | null;
   hideStartElapsed: number;
@@ -77,6 +85,8 @@ export interface HideSeekSession {
   guessCount: number;
   queryLog: QueryLogEntry[];
   revealReason: 'correct' | 'giveUp' | null;
+  /** 1-based round within the current series; 0 in setup. */
+  currentRound: number;
   /** Schedule-valid hide candidates at round start (updated by deduction queries). */
   possibleStationIds: string[];
   candidatePathsByStation: Record<string, ValidatedPath>;
@@ -88,6 +98,7 @@ export function createInitialSession(): HideSeekSession {
     phase: 'setup',
     config: { ...DEFAULT_CONFIG },
     startStationId: null,
+    playAreaStationId: null,
     hideStationId: null,
     validatedPath: null,
     hideStartElapsed: 0,
@@ -95,6 +106,7 @@ export function createInitialSession(): HideSeekSession {
     guessCount: 0,
     queryLog: [],
     revealReason: null,
+    currentRound: 0,
     possibleStationIds: [],
     candidatePathsByStation: {},
     mapOverlays: [],

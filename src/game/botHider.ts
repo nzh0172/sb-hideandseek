@@ -148,16 +148,26 @@ function isDestinationInPlayArea(
 export function pickBotHideSpot(
   startStationId: string,
   config: GameConfig,
+  playAreaStationId: string = startStationId,
 ): BotHideOutcome {
   const api = window.SubwayBuilderAPI;
   const stations = api.gameState.getStations();
   const startStation = stations.find((s) => s.id === startStationId);
+  const playAreaStation = stations.find((s) => s.id === playAreaStationId);
 
   if (!startStation) {
     return {
       ok: false,
       reason: 'start_not_found',
       message: 'Starting station not found.',
+    };
+  }
+
+  if (!playAreaStation) {
+    return {
+      ok: false,
+      reason: 'start_not_found',
+      message: 'Play area station not found.',
     };
   }
 
@@ -178,17 +188,17 @@ export function pickBotHideSpot(
   }
 
   const inRadius = stationsWithinRadiusKm(
-    startStation,
+    playAreaStation,
     stations,
     config.hideRadiusKm,
-    true,
-  );
+    false,
+  ).filter((s) => s.id !== startStationId);
 
   if (inRadius.length === 0) {
     return {
       ok: false,
       reason: 'no_candidates',
-      message: `No other stations within ${config.hideRadiusKm} km. Pick a more central starting station.`,
+      message: `No other stations within ${config.hideRadiusKm} km of the play area. Pick a more central starting station.`,
     };
   }
 
@@ -198,7 +208,7 @@ export function pickBotHideSpot(
       : config.hideDurationHours * 3600;
 
   const playArea: PlayAreaConstraint = {
-    startCoords: startStation.coords,
+    startCoords: playAreaStation.coords,
     radiusKm: config.hideRadiusKm,
   };
 
@@ -238,6 +248,10 @@ export function pickBotHideSpot(
     };
   }
 
-  const candidate = pickBotCandidate(startStationId, candidates, config.hideRadiusKm);
+  const candidate = pickBotCandidate(
+    playAreaStationId,
+    candidates,
+    config.hideRadiusKm,
+  );
   return { ok: true, candidate, allCandidates: candidates };
 }

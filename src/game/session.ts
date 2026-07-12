@@ -50,13 +50,14 @@ export function resetSession(): void {
   notifyAll();
 }
 
-/** Reset round state for setup, optionally carrying over the next starting station. */
+/** Reset to setup, keeping config and optionally a starting station. */
 export function resetForNewRound(nextStartStationId: string | null): void {
   const { config } = session;
   session = {
     ...createInitialSession(),
     startStationId: nextStartStationId,
     config: { ...config },
+    currentRound: 0,
   };
   notifyAll();
 }
@@ -96,6 +97,8 @@ export function setRoundData(data: {
   possibleStationIds: string[];
   candidatePathsByStation: Record<string, ValidatedPath>;
   phase: 'hiding' | 'seeking';
+  currentRound: number;
+  playAreaStationId: string;
 }): void {
   session = {
     ...session,
@@ -110,6 +113,8 @@ export function setRoundData(data: {
     queryLog: [],
     revealReason: null,
     phase: data.phase,
+    currentRound: data.currentRound,
+    playAreaStationId: data.playAreaStationId,
   };
   notifyAll();
 }

@@ -87,6 +87,19 @@ export function SeekingPhase() {
           clearSeekingPickerHighlight();
           setPickerTarget(null);
         }}
+        footer={
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => guessStation(guessId)}>Submit Guess</Button>
+            <Button variant="destructive" onClick={giveUp}>
+              Give Up
+            </Button>
+            {session.startStationId && (
+              <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
+                <ForceText text="View play area" />
+              </Button>
+            )}
+          </div>
+        }
       />
     );
   }
@@ -261,15 +274,6 @@ export function SeekingPhase() {
           >
             <ForceText text="Change" />
           </Button>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={() => guessStation(guessId)}>Submit Guess</Button>
-          <Button variant="destructive" onClick={giveUp}>Give Up</Button>
-          {session.startStationId && (
-            <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
-              <ForceText text="View play area" />
-            </Button>
-          )}
         </div>
       </div>
     </div>

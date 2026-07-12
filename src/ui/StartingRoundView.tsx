@@ -8,7 +8,14 @@ const MESSAGES: Record<GameMode, string> = {
   live: 'Planning the hider’s route…',
 };
 
-export function StartingRoundView({ mode }: { mode: GameMode }) {
+export function StartingRoundView({
+  mode,
+  roundLabel,
+}: {
+  mode: GameMode;
+  /** e.g. "Round 2 of 5" when starting a later round in a series. */
+  roundLabel?: string | null;
+}) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-10">
       <div
@@ -25,6 +32,9 @@ export function StartingRoundView({ mode }: { mode: GameMode }) {
       />
       <style>{`@keyframes hide-seek-spin { to { transform: rotate(360deg); } }`}</style>
       <div className="flex flex-col items-center gap-1 text-center">
+        {roundLabel ? (
+          <ForceText text={roundLabel} className="text-xs text-muted-foreground" />
+        ) : null}
         <ForceText text={MESSAGES[mode]} className="text-sm font-medium" />
         <ForceText
           text="This can take a moment on large networks."

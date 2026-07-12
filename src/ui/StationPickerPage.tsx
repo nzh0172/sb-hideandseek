@@ -36,6 +36,8 @@ interface StationPickerPageProps {
   pinnedLabel?: string;
   /** Highlight the selected station on the game map. */
   highlightOnMap?: boolean;
+  /** Optional actions rendered below the station list. */
+  footer?: React.ReactNode;
 }
 
 function RouteListItem({
@@ -128,6 +130,7 @@ export function StationPickerPage({
   pinnedStationId,
   pinnedLabel = 'Starting station',
   highlightOnMap = false,
+  footer,
 }: StationPickerPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogVersion, setCatalogVersion] = useState(0);
@@ -140,9 +143,10 @@ export function StationPickerPage({
   );
 
   useEffect(() => {
-    if (value) {
-      setSelectedRouteId(findRouteIdForStation(catalog, value));
-    }
+    if (!value) return;
+    setSelectedRouteId((current) =>
+      findRouteIdForStation(catalog, value, current),
+    );
   }, [value, catalog]);
 
   useEffect(() => {
@@ -260,9 +264,9 @@ export function StationPickerPage({
               opacity: searching ? 0.55 : 1,
             }}
           >
-            {catalog.map((entry, index) => (
+            {catalog.map((entry) => (
               <RouteListItem
-                key={index}
+                key={entry.routeId}
                 routeId={entry.routeId}
                 displayName={entry.displayName}
                 routeColor={entry.routeColor}
@@ -318,9 +322,9 @@ export function StationPickerPage({
               </div>
             )}
 
-            {visibleStations.map((station, index) => (
+            {visibleStations.map((station) => (
               <StationListItem
-                key={index}
+                key={station.id}
                 stationId={station.id}
                 selected={areSameStationGroup(station.id, value)}
                 onPick={() => pickStation(station.id)}
@@ -331,6 +335,8 @@ export function StationPickerPage({
           </div>
         </div>
       )}
+
+      {footer ? <div className="flex flex-col gap-2">{footer}</div> : null}
     </div>
   );
 }

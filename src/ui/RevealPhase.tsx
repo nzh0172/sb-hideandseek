@@ -1,7 +1,12 @@
 /** Reveal phase: show bot location and validated path */
 
 import { useEffect, useState } from 'react';
-import { getHideStationForReveal, newRound } from '../game/controller';
+import {
+  finishSeries,
+  getHideStationForReveal,
+  hasNextRound,
+  nextRound,
+} from '../game/controller';
 import { formatDuration, formatGameTime } from '../game/geo';
 import {
   setRevealPathVisible,
@@ -13,6 +18,7 @@ import { buildRevealTimelineStops } from '../game/pathFormat';
 import { getRevealPathOnMapEnabled } from '../game/seekingPreferences';
 import { ForceText } from './ForceText';
 import { RevealPathTimeline } from './RevealPathTimeline';
+import { StartingRoundView } from './StartingRoundView';
 import { StationLabel } from './StationLabel';
 import { useSession } from './useSession';
 
@@ -32,16 +38,46 @@ const SECONDARY_BTN = {
 export function RevealPhase() {
   const session = useSession();
   const [showPath, setShowPath] = useState(getRevealPathOnMapEnabled);
+  const [isAdvancing, setIsAdvancing] = useState(false);
   const hideStation = getHideStationForReveal();
   const won = session.revealReason === 'correct';
   const path = session.validatedPath;
   const timelineStops = path ? buildRevealTimelineStops(path.legs) : [];
   const startTimeLabel =
     session.hideStartElapsed > 0 ? formatGameTime(session.hideStartElapsed) : null;
+  const moreRounds = hasNextRound();
+  const roundLabel =
+    session.currentRound > 0
+      ? `Round ${session.currentRound} of ${session.config.totalRounds}`
+      : null;
 
   useEffect(() => {
     setRevealPathVisible(getRevealPathOnMapEnabled());
   }, []);
+
+  const handlePrimary = () => {
+    if (isAdvancing) return;
+    if (moreRounds) {
+      setIsAdvancing(true);
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          nextRound();
+        }, 0);
+      });
+      return;
+    }
+    finishSeries();
+  };
+
+  if (isAdvancing) {
+    const nextRoundNum = session.currentRound + 1;
+    return (
+      <StartingRoundView
+        mode={session.config.mode}
+        roundLabel={`Round ${nextRoundNum} of ${session.config.totalRounds}`}
+      />
+    );
+  }
 
   return (
     <div
@@ -57,6 +93,13 @@ export function RevealPhase() {
         width: '100%',
       }}
     >
+      {roundLabel && (
+        <ForceText
+          text={roundLabel}
+          style={{ fontSize: '13px', fontWeight: 600, color: REVEAL_MUTED }}
+        />
+      )}
+
       <Badge
         variant="outline"
         style={{
@@ -189,7 +232,8 @@ export function RevealPhase() {
         }}
       >
         <Button
-          onClick={newRound}
+          onClick={handlePrimary}
+          disabled={isAdvancing}
           style={{
             backgroundColor: '#ffffff',
             color: '#111827',
@@ -198,7 +242,7 @@ export function RevealPhase() {
             minWidth: 0,
           }}
         >
-          New Round
+          <ForceText text={moreRounds ? 'Next Round' : 'New Game'} />
         </Button>
         {path && (
           <Button

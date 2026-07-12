@@ -438,16 +438,21 @@ export function clearSeekingPickerHighlight(): void {
   refreshDeductionOverlay({ allowZoom: false });
 }
 
+function playAreaStationIdForSession(session: HideSeekSession): string | null {
+  return session.playAreaStationId ?? session.startStationId;
+}
+
 function buildPlayAreaFeatures(
   session: HideSeekSession,
   stationMap: Map<string, { coords: [number, number] }>,
 ): Array<Record<string, unknown>> {
-  if (!session.startStationId) return [];
+  const playAreaStationId = playAreaStationIdForSession(session);
+  if (!playAreaStationId) return [];
 
-  const start = stationMap.get(session.startStationId);
-  if (!start) return [];
+  const center = stationMap.get(playAreaStationId);
+  if (!center) return [];
 
-  const ring = circlePolygonRing(start.coords, session.config.hideRadiusKm);
+  const ring = circlePolygonRing(center.coords, session.config.hideRadiusKm);
   return [
     {
       type: 'Feature',
@@ -463,10 +468,11 @@ function buildPlayAreaFeatures(
 }
 
 function getPlayAreaForSession(session: HideSeekSession): ReturnType<typeof playAreaRegion> | null {
-  if (!session.startStationId) return null;
-  const start = api.gameState.getStations().find((s) => s.id === session.startStationId);
-  if (!start) return null;
-  return playAreaRegion(start.coords, session.config.hideRadiusKm);
+  const playAreaStationId = playAreaStationIdForSession(session);
+  if (!playAreaStationId) return null;
+  const center = api.gameState.getStations().find((s) => s.id === playAreaStationId);
+  if (!center) return null;
+  return playAreaRegion(center.coords, session.config.hideRadiusKm);
 }
 
 function buildSetupFeatures(
@@ -615,15 +621,16 @@ function zoomToRevealStation(coords: [number, number]): void {
   fitBoundsToRing(ring, { padding: 56, maxZoom: 17 });
 }
 
-/** Fit the map to the full play-area circle around the starting station. */
+/** Fit the map to the full play-area circle (fixed series origin). */
 export function viewPlayAreaOnMap(): void {
   const session = getSession();
-  if (!session.startStationId) return;
+  const playAreaStationId = playAreaStationIdForSession(session);
+  if (!playAreaStationId) return;
 
-  const start = api.gameState.getStations().find((s) => s.id === session.startStationId);
-  if (!start) return;
+  const center = api.gameState.getStations().find((s) => s.id === playAreaStationId);
+  if (!center) return;
 
-  const ring = circlePolygonRing(start.coords, session.config.hideRadiusKm);
+  const ring = circlePolygonRing(center.coords, session.config.hideRadiusKm);
   fitBoundsToRing(ring, { padding: 72, maxZoom: 14 });
 }
 
