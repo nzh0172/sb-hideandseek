@@ -3,6 +3,7 @@
 import { formatGameTime } from '../game/geo';
 import type { RevealTimelineStop } from '../game/pathFormat';
 import { ForceText } from './ForceText';
+import { getPhaseColors } from './phaseTheme';
 import { StationLabel } from './StationLabel';
 
 const DOT_SIZE = 14;
@@ -10,7 +11,6 @@ const LINE_WIDTH = 4;
 const LINE_LEFT = DOT_SIZE / 2 + 4;
 const STOP_GAP = 28;
 const TIME_COLUMN_MIN_WIDTH = 56;
-const TIMELINE_WHITE = '#ffffff';
 
 interface RevealPathTimelineProps {
   stops: RevealTimelineStop[];
@@ -23,9 +23,13 @@ function stopKey(stop: RevealTimelineStop, index: number): string {
 function TimelineStop({
   stationId,
   time,
+  pathColor,
+  muted,
 }: {
   stationId: string;
   time: number;
+  pathColor: string;
+  muted: string;
 }) {
   return (
     <div
@@ -44,7 +48,7 @@ function TimelineStop({
             width: DOT_SIZE,
             height: DOT_SIZE,
             borderRadius: '50%',
-            backgroundColor: TIMELINE_WHITE,
+            backgroundColor: pathColor,
             flexShrink: 0,
             position: 'relative',
             zIndex: 1,
@@ -53,7 +57,7 @@ function TimelineStop({
         <StationLabel
           stationId={stationId}
           style={{ fontSize: '15px', fontWeight: 500 }}
-          nameStyle={{ fontSize: '15px', fontWeight: 500, color: TIMELINE_WHITE }}
+          nameStyle={{ fontSize: '15px', fontWeight: 500, color: pathColor }}
           bulletSize={18}
         />
       </div>
@@ -61,7 +65,7 @@ function TimelineStop({
         text={formatGameTime(time)}
         style={{
           fontSize: '14px',
-          color: 'rgba(255,255,255,0.85)',
+          color: muted,
           flexShrink: 0,
           minWidth: TIME_COLUMN_MIN_WIDTH,
           textAlign: 'right',
@@ -74,6 +78,7 @@ function TimelineStop({
 export function RevealPathTimeline({ stops }: RevealPathTimelineProps) {
   if (stops.length === 0) return null;
 
+  const colors = getPhaseColors();
   const displayStops = [...stops].reverse();
 
   return (
@@ -92,7 +97,7 @@ export function RevealPathTimeline({ stops }: RevealPathTimelineProps) {
           top: DOT_SIZE / 2,
           bottom: DOT_SIZE / 2,
           width: LINE_WIDTH,
-          backgroundColor: TIMELINE_WHITE,
+          backgroundColor: colors.path,
           borderRadius: LINE_WIDTH / 2,
         }}
       />
@@ -103,6 +108,8 @@ export function RevealPathTimeline({ stops }: RevealPathTimelineProps) {
             key={stopKey(stop, index)}
             stationId={stop.stationId}
             time={stop.time}
+            pathColor={colors.path}
+            muted={colors.muted}
           />
         ))}
       </div>

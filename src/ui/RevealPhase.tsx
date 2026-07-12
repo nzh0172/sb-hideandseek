@@ -17,6 +17,7 @@ import {
 import { buildRevealTimelineStops } from '../game/pathFormat';
 import { getRevealPathOnMapEnabled } from '../game/seekingPreferences';
 import { ForceText } from './ForceText';
+import { getPhaseColors } from './phaseTheme';
 import { RevealPathTimeline } from './RevealPathTimeline';
 import { StartingRoundView } from './StartingRoundView';
 import { StationLabel } from './StationLabel';
@@ -27,16 +28,9 @@ const { Button, Badge, Label, Switch } = window.SubwayBuilderAPI.utils.component
   React.ComponentType<any>
 >;
 
-const REVEAL_BG = '#0a0a0a';
-const REVEAL_MUTED = 'rgba(255,255,255,0.72)';
-const SECONDARY_BTN = {
-  backgroundColor: '#3f3f46',
-  color: '#ffffff',
-  borderColor: '#52525b',
-} as const;
-
 export function RevealPhase() {
   const session = useSession();
+  const colors = getPhaseColors();
   const [showPath, setShowPath] = useState(getRevealPathOnMapEnabled);
   const [isAdvancing, setIsAdvancing] = useState(false);
   const hideStation = getHideStationForReveal();
@@ -82,10 +76,9 @@ export function RevealPhase() {
   return (
     <div
       style={{
-        backgroundColor: REVEAL_BG,
-        color: '#ffffff',
+        color: colors.foreground,
         borderRadius: 12,
-        padding: '22px 18px 18px',
+        padding: '8px 0',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -96,7 +89,7 @@ export function RevealPhase() {
       {roundLabel && (
         <ForceText
           text={roundLabel}
-          style={{ fontSize: '13px', fontWeight: 600, color: REVEAL_MUTED }}
+          style={{ fontSize: '13px', fontWeight: 600, color: colors.muted }}
         />
       )}
 
@@ -112,13 +105,13 @@ export function RevealPhase() {
           fontWeight: 600,
         }}
       >
-        <ForceText text={won ? 'Correct!' : 'Revealed'} />
+        <ForceText text={won ? 'Correct!' : 'Revealed'} style={{ color: '#ffffff' }} />
       </Badge>
 
       {won && session.guessCount > 0 && (
         <ForceText
           text={`${session.guessCount} wrong guess${session.guessCount !== 1 ? 'es' : ''}`}
-          style={{ fontSize: '12px', color: REVEAL_MUTED, marginTop: -10 }}
+          style={{ fontSize: '12px', color: colors.muted, marginTop: -10 }}
         />
       )}
 
@@ -135,7 +128,7 @@ export function RevealPhase() {
         <ForceText
           text="The hider was at"
           as="div"
-          style={{ fontSize: '13px', color: REVEAL_MUTED }}
+          style={{ fontSize: '13px', color: colors.muted }}
         />
 
         {hideStation ? (
@@ -147,11 +140,15 @@ export function RevealPhase() {
               fontWeight: 700,
               justifyContent: 'center',
             }}
-            nameStyle={{ fontSize: '26px', fontWeight: 700, color: '#ffffff' }}
+            nameStyle={{ fontSize: '26px', fontWeight: 700, color: colors.foreground }}
             bulletSize={24}
           />
         ) : (
-          <ForceText text="Unknown" as="div" style={{ fontSize: '26px', fontWeight: 700 }} />
+          <ForceText
+            text="Unknown"
+            as="div"
+            style={{ fontSize: '26px', fontWeight: 700, color: colors.foreground }}
+          />
         )}
 
         {session.startStationId && path && (
@@ -163,25 +160,25 @@ export function RevealPhase() {
               flexWrap: 'wrap',
               gap: 6,
               fontSize: '13px',
-              color: REVEAL_MUTED,
+              color: colors.muted,
               marginTop: 4,
             }}
           >
-            <ForceText text="From" style={{ fontSize: '13px', color: REVEAL_MUTED }} />
+            <ForceText text="From" style={{ fontSize: '13px', color: colors.muted }} />
             <StationLabel
               stationId={session.startStationId}
               style={{ fontSize: '13px' }}
-              nameStyle={{ fontSize: '13px', color: REVEAL_MUTED }}
+              nameStyle={{ fontSize: '13px', color: colors.muted }}
               bulletSize={16}
             />
             <ForceText
               text={`· ${formatDuration(path.totalTimeSeconds)} travel`}
-              style={{ fontSize: '13px', color: REVEAL_MUTED }}
+              style={{ fontSize: '13px', color: colors.muted }}
             />
             {startTimeLabel && (
               <ForceText
                 text={`· Run started at ${startTimeLabel}`}
-                style={{ fontSize: '13px', color: REVEAL_MUTED }}
+                style={{ fontSize: '13px', color: colors.muted }}
               />
             )}
           </div>
@@ -207,7 +204,7 @@ export function RevealPhase() {
         >
           <Label
             htmlFor="show-path-overlay"
-            style={{ color: '#ffffff', fontSize: '14px', fontWeight: 500 }}
+            style={{ color: colors.foreground, fontSize: '14px', fontWeight: 500 }}
           >
             Show path on map
           </Label>
@@ -235,9 +232,6 @@ export function RevealPhase() {
           onClick={handlePrimary}
           disabled={isAdvancing}
           style={{
-            backgroundColor: '#ffffff',
-            color: '#111827',
-            borderColor: '#e5e7eb',
             flex: '1 1 auto',
             minWidth: 0,
           }}
@@ -245,32 +239,17 @@ export function RevealPhase() {
           <ForceText text={moreRounds ? 'Next Round' : 'New Game'} />
         </Button>
         {path && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => viewEntirePathOnMap()}
-            style={SECONDARY_BTN}
-          >
+          <Button type="button" variant="secondary" onClick={() => viewEntirePathOnMap()}>
             <ForceText text="View entire path" />
           </Button>
         )}
         {hideStation && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => viewAnswerOnMap()}
-            style={SECONDARY_BTN}
-          >
+          <Button type="button" variant="secondary" onClick={() => viewAnswerOnMap()}>
             <ForceText text="View answer" />
           </Button>
         )}
-        {session.startStationId && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => viewPlayAreaOnMap()}
-            style={SECONDARY_BTN}
-          >
+        {(session.playAreaStationId || session.startStationId) && (
+          <Button type="button" variant="secondary" onClick={() => viewPlayAreaOnMap()}>
             <ForceText text="View play area" />
           </Button>
         )}

@@ -7,10 +7,10 @@ import {
 import { formatGameTime } from '../game/geo';
 import { ForceText } from './ForceText';
 import { LineBulletRow } from './LineBullet';
+import { getPhaseColors } from './phaseTheme';
 
 const DOT_SIZE = 14;
 const LINE_HEIGHT = 4;
-const WHITE = '#ffffff';
 
 const { Button } = window.SubwayBuilderAPI.utils.components as Record<
   string,
@@ -24,40 +24,27 @@ interface SeekingPathHeaderProps {
   onGuessClick: () => void;
 }
 
-const GUESS_BTN_STYLE: React.CSSProperties = {
-  backgroundColor: '#ffffff',
-  color: '#111827',
-  borderColor: '#e5e7eb',
-  flexShrink: 0,
-  margin: '0 6px',
-  height: 28,
-  minWidth: 60,
-  padding: '0 12px',
-  fontWeight: 600,
-  borderRadius: 999,
-};
-
-function PathDot() {
+function PathDot({ color }: { color: string }) {
   return (
     <div
       style={{
         width: DOT_SIZE,
         height: DOT_SIZE,
         borderRadius: '50%',
-        backgroundColor: WHITE,
+        backgroundColor: color,
         flexShrink: 0,
       }}
     />
   );
 }
 
-function PathLine() {
+function PathLine({ color }: { color: string }) {
   return (
     <div
       style={{
         flex: 1,
         height: LINE_HEIGHT,
-        backgroundColor: WHITE,
+        backgroundColor: color,
         minWidth: 0,
       }}
     />
@@ -76,11 +63,18 @@ function GuessSlot({
     <Button
       type="button"
       size="sm"
+      variant="outline"
       onClick={visible ? onClick : undefined}
       tabIndex={visible ? 0 : -1}
       aria-hidden={!visible}
       style={{
-        ...GUESS_BTN_STYLE,
+        flexShrink: 0,
+        margin: '0 6px',
+        height: 28,
+        minWidth: 60,
+        padding: '0 12px',
+        fontWeight: 600,
+        borderRadius: 999,
         visibility: visible ? 'visible' : 'hidden',
         pointerEvents: visible ? 'auto' : 'none',
       }}
@@ -93,9 +87,11 @@ function GuessSlot({
 function StationAbove({
   stationId,
   fallback,
+  color,
 }: {
   stationId: string | null;
   fallback: string;
+  color: string;
 }) {
   const name = stationId ? getStationBaseName(stationId) : fallback;
   const bullets = stationId ? getRouteBulletsForStationGroup(stationId) : [];
@@ -117,7 +113,7 @@ function StationAbove({
         style={{
           fontSize: '18px',
           fontWeight: 700,
-          color: WHITE,
+          color,
           textAlign: 'center',
           width: '100%',
         }}
@@ -129,7 +125,7 @@ function StationAbove({
   );
 }
 
-function LeftPathSegment() {
+function LeftPathSegment({ color }: { color: string }) {
   return (
     <div
       style={{
@@ -140,13 +136,13 @@ function LeftPathSegment() {
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }} />
-      <PathDot />
-      <PathLine />
+      <PathDot color={color} />
+      <PathLine color={color} />
     </div>
   );
 }
 
-function RightPathSegment() {
+function RightPathSegment({ color }: { color: string }) {
   return (
     <div
       style={{
@@ -156,8 +152,8 @@ function RightPathSegment() {
         minWidth: 0,
       }}
     >
-      <PathLine />
-      <PathDot />
+      <PathLine color={color} />
+      <PathDot color={color} />
       <div style={{ flex: 1, minWidth: 0 }} />
     </div>
   );
@@ -169,6 +165,7 @@ export function SeekingPathHeader({
   guessStationId,
   onGuessClick,
 }: SeekingPathHeaderProps) {
+  const colors = getPhaseColors();
   const startTime =
     startTimeSeconds > 0 ? formatGameTime(startTimeSeconds) : null;
 
@@ -184,20 +181,28 @@ export function SeekingPathHeader({
         padding: '4px 0',
       }}
     >
-      <StationAbove stationId={startStationId} fallback="Unknown" />
+      <StationAbove
+        stationId={startStationId}
+        fallback="Unknown"
+        color={colors.foreground}
+      />
       <GuessSlot visible={false} />
-      <StationAbove stationId={guessStationId} fallback="???" />
+      <StationAbove
+        stationId={guessStationId}
+        fallback="???"
+        color={colors.foreground}
+      />
 
-      <LeftPathSegment />
+      <LeftPathSegment color={colors.path} />
       <GuessSlot visible onClick={onGuessClick} />
-      <RightPathSegment />
+      <RightPathSegment color={colors.path} />
 
       <ForceText
         text={startTime ?? ' '}
         as="div"
         style={{
           fontSize: '13px',
-          color: startTime ? 'rgba(255,255,255,0.85)' : 'transparent',
+          color: startTime ? colors.muted : 'transparent',
           textAlign: 'center',
           width: '100%',
           minHeight: 18,

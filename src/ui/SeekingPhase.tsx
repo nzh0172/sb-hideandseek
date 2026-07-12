@@ -21,6 +21,7 @@ import {
 import { ForceText } from './ForceText';
 import { LabeledButton } from './LabeledButton';
 import { LinePickerPage } from './LinePickerPage';
+import { getPhaseColors } from './phaseTheme';
 import { QuestionLog } from './QuestionLog';
 import { SeekingPathHeader } from './SeekingPathHeader';
 import { StationLabel } from './StationLabel';
@@ -34,20 +35,6 @@ const { Button } = window.SubwayBuilderAPI.utils.components as Record<
 
 const DISTANCE_OPTIONS = [1, 2, 5, 10, 20];
 const DIRECTION_OPTIONS: CardinalDirection[] = ['north', 'south', 'east', 'west'];
-
-const SEEK_BG = '#0a0a0a';
-const SEEK_MUTED = 'rgba(255,255,255,0.65)';
-const WHITE_BTN = {
-  backgroundColor: '#ffffff',
-  color: '#111827',
-  borderColor: '#e5e7eb',
-  flexShrink: 0,
-} as const;
-const SECONDARY_BTN = {
-  backgroundColor: '#3f3f46',
-  color: '#ffffff',
-  borderColor: '#52525b',
-} as const;
 
 type PickerTarget = 'ref' | 'guess' | 'line' | null;
 
@@ -69,23 +56,24 @@ function StatusPill({
         fontWeight: 600,
       }}
     >
-      <ForceText text={text} />
+      <ForceText text={text} style={{ color: '#ffffff' }} />
     </div>
   );
 }
 
-function SectionLabel({ text }: { text: string }) {
+function SectionLabel({ text, color }: { text: string; color: string }) {
   return (
     <ForceText
       text={text}
       as="div"
-      style={{ fontSize: '12px', color: SEEK_MUTED, fontWeight: 500 }}
+      style={{ fontSize: '12px', color, fontWeight: 500 }}
     />
   );
 }
 
 export function SeekingPhase() {
   const session = useSession();
+  const colors = getPhaseColors();
   const [stations] = useState(getSortedStations);
   const defaultRefId =
     session.startStationId
@@ -110,19 +98,22 @@ export function SeekingPhase() {
 
   if (pickerTarget === 'ref') {
     return (
-      <StationPickerPage
-        value={refStationId}
-        stations={stations}
-        onChange={setRefStationId}
-        title="Reference station"
-        pinnedStationId={startStationId ?? undefined}
-        pinnedLabel="Starting station"
-        highlightOnMap
-        onBack={() => {
-          clearSeekingPickerHighlight();
-          setPickerTarget(null);
-        }}
-      />
+      <div className="flex flex-col gap-3">
+        <StationPickerPage
+          value={refStationId}
+          stations={stations}
+          onChange={setRefStationId}
+          title="Reference station"
+          pinnedStationId={startStationId ?? undefined}
+          pinnedLabel="Starting station"
+          highlightOnMap
+          onBack={() => {
+            clearSeekingPickerHighlight();
+            setPickerTarget(null);
+          }}
+        />
+        <QuestionLog entries={session.queryLog} />
+      </div>
     );
   }
 
@@ -166,27 +157,29 @@ export function SeekingPhase() {
 
   if (pickerTarget === 'line') {
     return (
-      <LinePickerPage
-        onPick={(routeId) => {
-          queryOnLine(routeId);
-          clearSeekingPickerHighlight();
-          setPickerTarget(null);
-        }}
-        onBack={() => {
-          clearSeekingPickerHighlight();
-          setPickerTarget(null);
-        }}
-      />
+      <div className="flex flex-col gap-3">
+        <LinePickerPage
+          onPick={(routeId) => {
+            queryOnLine(routeId);
+            clearSeekingPickerHighlight();
+            setPickerTarget(null);
+          }}
+          onBack={() => {
+            clearSeekingPickerHighlight();
+            setPickerTarget(null);
+          }}
+        />
+        <QuestionLog entries={session.queryLog} />
+      </div>
     );
   }
 
   return (
     <div
       style={{
-        backgroundColor: SEEK_BG,
-        color: '#ffffff',
+        color: colors.foreground,
         borderRadius: 12,
-        padding: '18px 16px 16px',
+        padding: '4px 0',
         display: 'flex',
         flexDirection: 'column',
         gap: 18,
@@ -218,20 +211,20 @@ export function SeekingPhase() {
       />
 
       <div className="flex flex-col gap-2">
-        <SectionLabel text="Reference station" />
+        <SectionLabel text="Reference station" color={colors.muted} />
         <div className="flex items-center gap-2">
           {refStationId ? (
             <StationLabel
               stationId={refStationId}
               style={{ flex: 1, minWidth: 0, fontSize: '0.875rem' }}
-              nameStyle={{ fontSize: '0.875rem', color: '#ffffff' }}
+              nameStyle={{ fontSize: '0.875rem', color: colors.foreground }}
               bulletSize={16}
             />
           ) : (
             <ForceText
               text="Pick a station"
               className="text-sm"
-              style={{ flex: 1, minWidth: 0, color: SEEK_MUTED }}
+              style={{ flex: 1, minWidth: 0, color: colors.muted }}
             />
           )}
           {startStationId && (
@@ -240,7 +233,7 @@ export function SeekingPhase() {
               variant="outline"
               size="sm"
               onClick={() => setRefStationId(startStationId)}
-              style={WHITE_BTN}
+              style={{ flexShrink: 0 }}
             >
               <ForceText text="Starting station" />
             </Button>
@@ -250,7 +243,7 @@ export function SeekingPhase() {
             variant="outline"
             size="sm"
             onClick={() => setPickerTarget('ref')}
-            style={WHITE_BTN}
+            style={{ flexShrink: 0 }}
           >
             <ForceText text="Change" />
           </Button>
@@ -258,64 +251,55 @@ export function SeekingPhase() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <SectionLabel text="Distance from reference" />
+        <SectionLabel text="Distance from reference" color={colors.muted} />
         <div className="flex flex-wrap gap-1">
           {DISTANCE_OPTIONS.map((km) => (
             <LabeledButton
               key={`dist-${km}`}
               label={`≤ ${km} km`}
               onClick={() => queryWithinKmFromStation(refStationId, km)}
-              style={SECONDARY_BTN}
             />
           ))}
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <SectionLabel text="Direction from reference" />
+        <SectionLabel text="Direction from reference" color={colors.muted} />
         <div className="flex flex-wrap gap-1">
           {DIRECTION_OPTIONS.map((direction) => (
             <LabeledButton
               key={`dir-${direction}`}
               label={direction.charAt(0).toUpperCase() + direction.slice(1)}
               onClick={() => queryDirectionFromStation(refStationId, direction)}
-              style={SECONDARY_BTN}
             />
           ))}
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <SectionLabel text="Line check" />
-        <Button
-          variant="secondary"
-          onClick={() => setPickerTarget('line')}
-          style={{ ...SECONDARY_BTN, width: '100%' }}
-        >
+        <SectionLabel text="Line check" color={colors.muted} />
+        <Button variant="secondary" onClick={() => setPickerTarget('line')} style={{ width: '100%' }}>
           <ForceText text="Select line" />
         </Button>
         <div className="flex flex-wrap gap-1">
           <Button
             variant="secondary"
             onClick={queryTransferCount}
-            style={{ ...SECONDARY_BTN, flex: '1 1 0' }}
+            style={{ flex: '1 1 0' }}
           >
             <ForceText text="Transfer count" />
           </Button>
           <Button
             variant="secondary"
             onClick={querySameLineAsStart}
-            style={{ ...SECONDARY_BTN, flex: '1 1 0' }}
+            style={{ flex: '1 1 0' }}
           >
             <ForceText text="Same line as start?" />
           </Button>
         </div>
       </div>
 
-      <QuestionLog
-        entries={session.queryLog}
-      />
-
+      <QuestionLog entries={session.queryLog} />
     </div>
   );
 }

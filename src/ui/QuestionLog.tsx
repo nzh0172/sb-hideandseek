@@ -8,6 +8,7 @@ interface QuestionLogProps {
 }
 
 function formatLogText(entries: QueryLogEntry[]): string {
+  if (entries.length === 0) return 'No questions yet.';
   return [...entries]
     .reverse()
     .map((entry) => `${entry.question}\nAnswer: ${entry.answer}`)
@@ -15,9 +16,8 @@ function formatLogText(entries: QueryLogEntry[]): string {
 }
 
 export function QuestionLog({ entries }: QuestionLogProps) {
-  if (entries.length === 0) return null;
-
   const logText = formatLogText(entries);
+  const empty = entries.length === 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -45,6 +45,7 @@ export function QuestionLog({ entries }: QuestionLogProps) {
           whiteSpace: 'pre-wrap',
           color: 'var(--foreground, #111827)',
           background: 'rgba(128,128,128,0.06)',
+          opacity: empty ? 0.7 : 1,
         }}
       />
     </div>
